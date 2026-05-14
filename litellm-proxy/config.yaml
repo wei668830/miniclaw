@@ -1,0 +1,18 @@
+model_list:
+  - model_name: litellm_proxy
+    litellm_params:
+      model: github_copilot/gpt-4.1
+      api_key: nothing
+      drop_params: true
+      extra_headers:
+        Editor-Version: "vscode/1.106.3"
+        Editor-Plugin-Version: "copilot/1.388.0"
+        Copilot-Integration-Id: "vscode-chat"
+        User-Agent: "GithubCopilot/1.388.0"
+
+#model_list:
+#  - model_name: litellm_proxy
+#    litellm_params:
+#      model: ollama/qwen2.5-coder:3b
+#      api_base: http://localhost:11434
+#      drop_params: true

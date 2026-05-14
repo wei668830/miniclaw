@@ -1,0 +1,6 @@
+model_list:
+  - model_name: copilot-chat
+    litellm_params:
+      model: "gpt-5.2-codex"
+      api_key: nothing
+      api_base: https://models.inference.ai.azure.com
