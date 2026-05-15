@@ -32,6 +32,14 @@
   * `pip install litellm[proxy]` (安装 LiteLLM 代理)
 
 ## 运行配置
+
+### 运行配置
+* 需要在项目根目录下创建 `.env` 文件，可以直接将 `.env.example` 文件复制一份并重命名为 `.env`，例如：
+  * LLM_MODEL=deepseek/deepseek-v4-flash
+  * LLM_API_KEY=<your_api_key>
+  * LLM_BASE_URL=https://api.deepseek.com
+
+### 运行方式
 **Windows 系统**
 将 `miniclaw.bat` 中的 `python.exe` 路径替换为本机路径
 ```cmd
