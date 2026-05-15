@@ -41,6 +41,7 @@
 
 ### 运行方式
 **Windows 系统**
+
 将 `miniclaw.bat` 中的 `python.exe` 路径替换为本机路径
 ```cmd
 @echo off
@@ -48,10 +49,16 @@
 ```
 
 **Linux 系统**
+
 同上
 
-运行命令：
-在 Commander/Power Shell 或者 Shell 中运行 `miniclaw` 命令，进入交互式命令行界面。
+**运行命令**
+```bash
+# 在 Commander/Power Shell 或者 Shell 中运行 `miniclaw` 命令，进入交互式命令行界面。
+
+miniclaw.bat
+```
+
 
 ## 调试说明
 * 若需要在控制台运行时调试，请将下面的语句在待调试的地方拷贝
