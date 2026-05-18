@@ -1,6 +1,5 @@
 from typing import AsyncIterator
 
-import litellm
 from litellm import acompletion, completion_cost
 from loguru import logger
 
@@ -9,6 +8,7 @@ from ..llm_configurator import (
     LLMConfigurator,
     LLM_USAGE_MASTER,
 )
+
 
 # 关闭所有的调试信息输出
 # litellm.suppress_debug_info = True
@@ -49,9 +49,11 @@ class LiteLLMClient(BaseLLMClient):
             )
 
             content = ""
+            reasoning_content = ""
             if hasattr(response, "choices") and len(response.choices) > 0:
                 msg = response.choices[0].message
                 content = msg.content.strip() if hasattr(msg, "content") and msg.content else ""
+                reasoning_content = msg.content.strip() if hasattr(msg, "reasoning_content") and msg.reasoning_content else ""
 
             pt, ct, tt = None, None, None
             if hasattr(response, "usage") and response.usage is not None:
@@ -67,6 +69,7 @@ class LiteLLMClient(BaseLLMClient):
 
             return LLMResponse(
                 content=content,
+                reasoning_content=reasoning_content,
                 prompt_tokens=pt,
                 completion_tokens=ct,
                 total_tokens=tt,

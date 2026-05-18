@@ -14,10 +14,12 @@ load_dotenv()
 def run_server(args):
     """启动服务器模式"""
     # 使用命令行参数或环境变量
-    host = args.host or os.getenv("SERVER_HOST", "0.0.0.0")
-    port = args.port or int(os.getenv("SERVER_PORT", 8000))
-    reload = not args.no_reload if hasattr(args, 'no_reload') else True
-    log_level = args.log_level or os.getenv("LOG_LEVEL", "info").lower()
+    # 使用 getattr 安全获取属性
+    host = getattr(args, 'host', None) or EnvVarLoader.get_str("SERVER_HOST", "0.0.0.0")
+    port = getattr(args, 'port', None) or EnvVarLoader.get_int("SERVER_PORT", 8000)
+    reload = not getattr(args, 'no_reload', False)  # 默认启用 reload
+    log_level = getattr(args, 'log_level', None) or EnvVarLoader.get_str("LOG_LEVEL", "info").lower()
+
 
     uvicorn.run(
         "miniclaw.app._app:app",
@@ -78,6 +80,10 @@ def main():
     """主入口函数"""
     parser = create_parser()
     args = parser.parse_args()
+
+    # 如果没有指定子命令，默认进入 server 模式
+    if not args.command:
+        args.command = "server"
 
     # 如果没有指定子命令，默认进入 cli 模式
     if not args.command:

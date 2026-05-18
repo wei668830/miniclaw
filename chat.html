@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>MiniClaw 流式对话</title>
+    <title>MiniClaw 对话</title>
     <style>
         * {
             box-sizing: border-box;
@@ -66,6 +66,23 @@
             border-bottom-left-radius: 4px;
         }
 
+        .reasoning {
+            align-self: flex-start;
+            background: #fff8e1;
+            color: #795548;
+            border-left: 3px solid #ffb300;
+            border-radius: 4px;
+            font-style: italic;
+            font-size: 13px;
+        }
+
+        .meta {
+            align-self: flex-start;
+            font-size: 11px;
+            color: #57606a;
+            padding: 2px 4px;
+        }
+
         .controls {
             display: grid;
             grid-template-columns: 1fr auto auto;
@@ -114,11 +131,48 @@
             font-size: 12px;
             color: #57606a;
         }
+
+        .typing {
+            align-self: flex-start;
+            display: inline-flex;
+            gap: 4px;
+            padding: 12px 16px;
+            background: #f3f4f6;
+            border-radius: 10px;
+            border-bottom-left-radius: 4px;
+        }
+
+        .typing span {
+            width: 8px;
+            height: 8px;
+            background: #9aa0a6;
+            border-radius: 50%;
+            animation: typing 1.4s infinite both;
+        }
+
+        .typing span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 80%, 100% {
+                opacity: 0.3;
+                transform: scale(0.8);
+            }
+            40% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
     </style>
 </head>
 <body>
 <div class="app">
-    <div class="title">MiniClaw Streaming Chat</div>
+    <div class="title">MiniClaw Chat</div>
     <div id="chat" class="chat"></div>
 
     <div class="controls">
@@ -131,7 +185,7 @@
 </div>
 
 <script>
-    const API_URL = "http://localhost:8000/api/llm/stream";
+    const API_URL = "http://localhost:8000/api/llm/chat";
 
     const chatEl = document.getElementById("chat");
     const promptEl = document.getElementById("prompt");
@@ -139,8 +193,9 @@
     const stopBtn = document.getElementById("stopBtn");
     const statusEl = document.getElementById("status");
 
-    // Keep full history so /stream can continue with context and tool-call follow-ups.
-    const messages = [];
+    // 生成一个简单的会话 ID
+    const CID = "chat_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+
     let currentController = null;
 
     function setStatus(text) {
@@ -157,148 +212,127 @@
         chatEl.scrollTop = chatEl.scrollHeight;
     }
 
-    function appendMessage(role, content = "") {
+    function appendMessage(role, content) {
         const div = document.createElement("div");
-        div.className = `msg ${role}`;
+        div.className = "msg " + role;
         div.textContent = content;
         chatEl.appendChild(div);
         scrollBottom();
         return div;
     }
 
-    function parseSseFrames(buffer) {
-        const frames = [];
-        let splitIndex;
-        while ((splitIndex = buffer.indexOf("\n\n")) !== -1) {
-            frames.push(buffer.slice(0, splitIndex));
-            buffer = buffer.slice(splitIndex + 2);
-        }
-        return {frames, rest: buffer};
+    function appendReasoning(content) {
+        const div = document.createElement("div");
+        div.className = "reasoning";
+        div.textContent = "🧠 " + content;
+        chatEl.appendChild(div);
+        scrollBottom();
+        return div;
     }
 
-    function parseFrame(frameText) {
-        const lines = frameText.split(/\r?\n/);
-        let eventName = "message";
-        const dataLines = [];
+    function appendMeta(text) {
+        const div = document.createElement("div");
+        div.className = "meta";
+        div.textContent = text;
+        chatEl.appendChild(div);
+        scrollBottom();
+        return div;
+    }
 
-        for (const line of lines) {
-            if (line.startsWith("event:")) {
-                eventName = line.slice(6).trim();
-            } else if (line.startsWith("data:")) {
-                dataLines.push(line.slice(5).trim());
-            }
+    function showTyping() {
+        const container = document.createElement("div");
+        container.className = "typing";
+        container.id = "typingIndicator";
+        for (let i = 0; i < 3; i++) {
+            const dot = document.createElement("span");
+            container.appendChild(dot);
         }
+        chatEl.appendChild(container);
+        scrollBottom();
+        return container;
+    }
 
-        let data = {};
-        const joined = dataLines.join("\n");
-        if (joined) {
-            try {
-                data = JSON.parse(joined);
-            } catch {
-                data = {raw: joined};
-            }
-        }
-
-        return {eventName, data};
+    function hideTyping() {
+        const el = document.getElementById("typingIndicator");
+        if (el) el.remove();
     }
 
     async function sendMessage() {
         const text = promptEl.value.trim();
         if (!text || currentController) return;
 
-        messages.push({role: "user", content: text});
+        // 历史由后端通过 cid 维持，前端只发当前消息
         appendMessage("user", text);
         promptEl.value = "";
-
-        let assistantText = "";
-        let activeAssistantEl = appendMessage("assistant", "");
-        let activeAssistantText = "";
 
         currentController = new AbortController();
         setSending(true);
         setStatus("请求中...");
+        showTyping();
 
         try {
             const resp = await fetch(API_URL, {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
                 body: JSON.stringify({
+                    cid: CID,
                     model: "deepseek/deepseek-chat",
-                    messages,
+                    messages: [{role: "user", content: text}],
                     temperature: 0.7,
                     max_tokens: 1024
                 }),
                 signal: currentController.signal
             });
 
-            if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
-            if (!resp.body) throw new Error("响应体为空，无法读取流");
-
-            setStatus("流式接收中...");
-
-            const reader = resp.body.getReader();
-            const decoder = new TextDecoder("utf-8");
-            let buffer = "";
-
-            while (true) {
-                const {value, done} = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, {stream: true});
-                const {frames, rest} = parseSseFrames(buffer);
-                buffer = rest;
-
-                for (const frame of frames) {
-                    if (!frame.trim()) continue;
-                    const {eventName, data} = parseFrame(frame);
-
-                    if (eventName === "chunk") {
-                        const delta = typeof data.delta === "string" ? data.delta : "";
-                        if (delta) {
-                            assistantText += delta;
-                            activeAssistantText += delta;
-                            activeAssistantEl.textContent = activeAssistantText;
-                            scrollBottom();
-                        }
-                    } else if (eventName === "tool_call") {
-                        if (!activeAssistantText.trim()) {
-                            activeAssistantEl.textContent = "(思考中...)";
-                        }
-
-                        const toolName = data.function.name || "未知工具";
-                        const toolArgs = JSON.stringify(data.function.arguments || {}, null, 2);
-                        const toolEl = appendMessage("assistant", `[工具调用] ${toolName}\n${toolArgs}`);
-                        toolEl.style.fontStyle = "italic";
-
-                        activeAssistantEl = appendMessage("assistant", "");
-                        activeAssistantText = "";
-                    }  else if (eventName === "done") {
-                        setStatus(`完成: ${data.finish_reason || "stop"}`);
-                    } else if (eventName === "error") {
-                        throw new Error(data.error || "服务端返回错误");
-                    }
+            if (!resp.ok) {
+                let detail = "";
+                try {
+                    const errData = await resp.json();
+                    detail = errData.detail || resp.statusText;
+                } catch {
+                    detail = resp.statusText;
                 }
+                throw new Error("HTTP " + resp.status + " " + detail);
             }
 
-            if (activeAssistantEl && !activeAssistantEl.textContent.trim()) {
-                activeAssistantEl.remove();
+            hideTyping();
+            setStatus("处理中...");
+
+            const result = await resp.json();
+
+            // 显示思考过程（如果有）
+            if (result.reasoning_content) {
+                appendReasoning(result.reasoning_content);
             }
 
-            messages.push({role: "assistant", content: assistantText});
-            if (!assistantText) {
-                const emptyEl = appendMessage("assistant", "(未收到文本输出，可能触发了仅工具调用流程)");
+            // 显示助手回复
+            if (result.content) {
+                appendMessage("assistant", result.content);
+            } else {
+                const emptyEl = appendMessage("assistant", "(未返回文本内容)");
                 emptyEl.style.fontStyle = "italic";
             }
-            if (statusEl.textContent.startsWith("流式接收中")) {
-                setStatus("完成");
+
+            // 显示 Token 用量
+            const metaParts = [];
+            if (result.prompt_tokens !== undefined) metaParts.push("输入: " + result.prompt_tokens + " tokens");
+            if (result.completion_tokens !== undefined) metaParts.push("输出: " + result.completion_tokens + " tokens");
+            if (result.total_tokens !== undefined) metaParts.push("总计: " + result.total_tokens + " tokens");
+            if (result.cost_usd !== undefined) metaParts.push("费用: $" + Number(result.cost_usd).toFixed(6));
+            if (metaParts.length > 0) {
+                appendMeta("📊 " + metaParts.join(" | "));
             }
+
+            setStatus("完成");
+
         } catch (err) {
+            hideTyping();
             if (err && err.name === "AbortError") {
                 setStatus("已停止");
             } else {
                 setStatus("请求失败");
                 const message = err && err.message ? err.message : String(err);
-                if (!activeAssistantEl.textContent) activeAssistantEl.textContent = `错误: ${message}`;
+                appendMessage("assistant", "错误: " + message);
             }
         } finally {
             currentController = null;
@@ -306,14 +340,16 @@
         }
     }
 
-    function stopStream() {
-        if (currentController) currentController.abort();
+    function stopRequest() {
+        if (currentController) {
+            currentController.abort();
+        }
     }
 
     sendBtn.addEventListener("click", sendMessage);
-    stopBtn.addEventListener("click", stopStream);
+    stopBtn.addEventListener("click", stopRequest);
 
-    promptEl.addEventListener("keydown", (e) => {
+    promptEl.addEventListener("keydown", function(e) {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             sendMessage();
@@ -322,4 +358,3 @@
 </script>
 </body>
 </html>
-

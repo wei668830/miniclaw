@@ -5,7 +5,7 @@ from .llm_tools_manager import llm_tools_manager
 
 
 def get_llm_client(provider: str | None = "litellm") -> BaseLLMClient:
-    if provider == "litellm":
+    if not provider or provider == "litellm":
         return LiteLLMClient()
     raise ValueError(f"Unsupported LLM provider: {provider}")
 

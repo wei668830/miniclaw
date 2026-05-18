@@ -33,7 +33,8 @@ class LLMStreamChunk(BaseModel):
 # 非流式完整返回
 class LLMResponse(BaseModel):
     content: str  # 必选：回复内容
-
+    reasoning_content: Optional[str] = None  # 思考内容
+    tool_calls: Optional[List[Dict[str, Any]]] = None
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     total_tokens: Optional[int] = None

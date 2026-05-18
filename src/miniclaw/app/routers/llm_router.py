@@ -6,24 +6,40 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from ..llm_chat_context import store_chat_context, fetch_chat_context
 from ...agents import get_llm_client
 from ...agents.llm_tools_manager import llm_tools_manager
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
+
 class ChatRequest(BaseModel):
-    model: str = Field(..., description="litellm model id, e.g. openai/gpt-4o-mini")
+    cid: str = Field(..., description="Chat ID")
     messages: list[dict[str, Any]]
-    temperature: float = 0.7
-    max_tokens: int = 4096
+    model: str | None = Field(..., description="litellm model id, e.g. openai/gpt-4o-mini")
+    temperature: float | None = None
+    max_tokens: int | None = None
     provider: str | None = None
 
 
 @router.post("/chat")
 async def chat(req: ChatRequest):
+    if not req.messages or len(req.messages) != 1 or req.messages[0].get('role') != 'user' or not req.messages[0].get('content', '').strip():
+        raise HTTPException(status_code=400, detail="必须传递一条非空的用户消息")
+
     client = get_llm_client(req.provider)
+
+    # 1. 获取历史消息（需要 await）
+    history_messages = await fetch_chat_context(req.cid)
+    logger.debug(f"Fetched chat context for CID {req.cid}: {json.dumps(history_messages, ensure_ascii=False)}")
+
+    # 2. 构建完整的消息列表：历史消息 + 当前用户消息
+    messages = history_messages + req.messages
+    logger.debug(f"Full messages: {json.dumps(messages, ensure_ascii=False)}")
+
+    # 3. 调用 LLM
     result = await client.chat(
-        messages=req.messages,
+        messages=messages,  # 使用完整的消息列表
         model=req.model,
         temperature=req.temperature,
         max_tokens=req.max_tokens,
@@ -32,8 +48,26 @@ async def chat(req: ChatRequest):
     if result.error:
         raise HTTPException(status_code=400, detail=result.error)
 
+    # 4. 存储用户消息（使用 req.messages 中的用户输入）
+    # 假设 req.messages 的最后一条是用户消息
+    await store_chat_context(
+        req.cid,
+        req.messages[0]
+    )
+
+    # 5. 存储助手回复
+    await store_chat_context(
+        req.cid,
+        {
+            "role": "assistant",
+            "content": result.content,
+            "reasoning_content": result.reasoning_content
+        }
+    )
+
     return {
         "content": result.content,
+        "reasoning_content": result.reasoning_content,
         "prompt_tokens": result.prompt_tokens,
         "completion_tokens": result.completion_tokens,
         "total_tokens": result.total_tokens,
