@@ -209,3 +209,6 @@ service_running.txt
 
 # 强制加入不受其他设置影响
 !libraries/**
+
+# 本项目特殊文件
+scripts/
