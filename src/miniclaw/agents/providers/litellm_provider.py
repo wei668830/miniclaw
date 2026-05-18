@@ -1,7 +1,6 @@
-import os
 from typing import AsyncIterator
-from typing import Optional
 
+import litellm
 from litellm import acompletion, completion_cost
 from loguru import logger
 
@@ -9,11 +8,10 @@ from ..base_llm_client import BaseLLMClient, LLMResponse, LLMStreamChunk
 from ..llm_configurator import (
     LLMConfigurator,
     LLM_USAGE_MASTER,
-    LLM_USAGE_THINKING,
-    LLM_USAGE_HAIKU,
-    LLM_USAGE_SONNET,
-    LLM_USAGE_OPUS,
 )
+
+# 关闭所有的调试信息输出
+litellm.suppress_debug_info = True
 
 
 class LiteLLMClient(BaseLLMClient):
