@@ -13,7 +13,7 @@
 **支持的工具列表：**
 * 文件读写（😅说了一万遍不要一次读取多个文件，听不进去非要一起读！）
 * 文件查找
-* `SHELL`命令（😅支持干掉自己，有时候杀别的 `python` 应用进程处理不了就直接梭哈所有 `python` 进程自己也在名单里！）
+* `SHELL`命令
 * 浏览器操作（基于`playwright`对于设置防火防盗防AI的网站操作不了！）
 * 屏幕截图
 * 独立进程运行（在后台启动一个完全独立的进程，脱离当前Python程序独立运行。适用于启动 Spring Boot、Node.js、执行yarn/npm 构建等场景。路径支持~表示用户目录。）
@@ -78,9 +78,10 @@ miniclaw.bat
   * `poetry add --group dev pytest-asyncio`
 * 在测试文件中引入 `pytest-asyncio`，并使用 `@pytest.mark.asyncio` 装饰器标记异步测试函数
   ```python
-    import pytest
-
-    @pytest.mark.asyncio
-    async def test_async_function():
-        # 测试代码
-    ```
+  import pytest
+  
+  @pytest.mark.asyncio
+  async def test_async_function():
+      # 测试代码
+      pass
+  ```

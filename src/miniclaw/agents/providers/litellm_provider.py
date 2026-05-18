@@ -11,7 +11,7 @@ from ..llm_configurator import (
 )
 
 # 关闭所有的调试信息输出
-litellm.suppress_debug_info = True
+# litellm.suppress_debug_info = True
 
 
 class LiteLLMClient(BaseLLMClient):

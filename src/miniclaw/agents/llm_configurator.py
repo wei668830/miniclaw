@@ -42,8 +42,8 @@ class LLMConfigurator:
         if "model" not in kwargs:
             kwargs["model"] = EnvVarLoader.get_str("LLM_MODEL")
         # 特例：如果是 litellm_proxy 模模型，强制使用 openai 协议（因为 litellm_proxy 本质上是一个兼容 OpenAI 协议的代理）
-        if kwargs["model"] and kwargs["model"] == "litellm_proxy":
-            kwargs["custom_llm_provider"] = "openai"
+        if "custom_llm_provider" in kwargs:
+            kwargs["custom_llm_provider"] = EnvVarLoader.get_str("CUSTOM_LLM_PROVIDER")
 
         if "base_url" not in kwargs:
             kwargs["api_base"] = EnvVarLoader.get_str("LLM_BASE_URL")
