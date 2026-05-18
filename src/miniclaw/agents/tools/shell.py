@@ -219,6 +219,8 @@ async def execute_shell_command(
         env["PATH"] = python_bin_dir
 
     try:
+        # 安全检查：禁止执行可能导致自杀式操作的命令（如批量杀死 Python 进程）
+        _check_kill_yourself_command(cmd)
         if sys.platform == "win32":
             # Windows: use thread pool to avoid asyncio subprocess limitations
             returncode, stdout_str, stderr_str = await asyncio.to_thread(
@@ -337,3 +339,42 @@ def smart_decode(data: bytes) -> str:
         decoded_str = data.decode(encoding, errors="replace")
 
     return decoded_str.strip("\n")
+
+
+def _check_kill_yourself_command(cmd: str):
+    """Check if the command is a self-termination command."""
+    # 统一转为小写，防止用户通过大小写绕过（比如 TASKKILL, Python.Exe）
+    cmd_lower = cmd.lower()
+
+    if sys.platform == "win32":
+        # --- Windows 平台 ---
+
+        # 1. 传统的 CMD taskkill 命令
+        # 补充了 /FI (过滤器) 的绕过情况
+        if "taskkill" in cmd_lower and "python.exe" in cmd_lower:
+            raise Exception("Killing all python.exe processes is not allowed as this will also stop the application.")
+
+        # 2. PowerShell 的 Stop-Process 命令
+        # 补充了别名 kill/spps 以及单引号的绕过情况
+        if ("stop-process" in cmd_lower or " kill " in cmd_lower or " spps " in cmd_lower) and \
+                ("python" in cmd_lower) and ("-name" in cmd_lower or "-id" in cmd_lower):
+            raise Exception("Killing all python.exe processes is not allowed as this will also stop the application.")
+
+    else:
+        # --- Linux / macOS 平台 ---
+
+        # 1. killall 命令 (例如: killall -9 python)
+        if "killall" in cmd_lower and "python" in cmd_lower:
+            raise Exception("Killing all python processes is not allowed as this will also stop the application.")
+
+        # 2. pkill 命令 (例如: pkill -f python)
+        if "pkill" in cmd_lower and "python" in cmd_lower:
+            raise Exception("Killing all python processes is not allowed as this will also stop the application.")
+
+        # 3. ps + grep + kill 组合拳 (例如: ps -ef | grep python | awk ... | xargs kill)
+        # 只要命令里同时包含 kill、grep 和 python，极大概率是在进行批量查杀
+        if "kill" in cmd_lower and "grep" in cmd_lower and "python" in cmd_lower:
+            raise Exception("Killing all python processes is not allowed as this will also stop the application.")
+
+
+
