@@ -82,8 +82,8 @@ def main():
     args = parser.parse_args()
 
     # 如果没有指定子命令，默认进入 server 模式
-    if not args.command:
-        args.command = "server"
+    # if not args.command:
+    #     args.command = "server"
 
     # 如果没有指定子命令，默认进入 cli 模式
     if not args.command:
