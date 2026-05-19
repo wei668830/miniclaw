@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/llm", tags=["llm"])
 class ChatRequest(BaseModel):
     cid: str = Field(..., description="Chat ID")
     messages: list[dict[str, Any]]
-    model: str | None = Field(..., description="litellm model id, e.g. openai/gpt-4o-mini")
+    model: str | None = Field(default=None, description="litellm model id, e.g. openai/gpt-4o-mini")
     temperature: float | None = None
     max_tokens: int | None = None
     provider: str | None = None

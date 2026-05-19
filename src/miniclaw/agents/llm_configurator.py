@@ -39,17 +39,17 @@ class LLMConfigurator:
         Returns:
             连接配置字典，包含必要的连接参数，例如 model、api_base、api_key 等
         """
-        if "model" not in kwargs:
+        if "model" not in kwargs or kwargs["model"] is None:
             kwargs["model"] = EnvVarLoader.get_str("LLM_MODEL")
         # 特例：如果是 litellm_proxy 模模型，强制使用 openai 协议（因为 litellm_proxy 本质上是一个兼容 OpenAI 协议的代理）
         if "custom_llm_provider" in kwargs:
             kwargs["custom_llm_provider"] = EnvVarLoader.get_str("CUSTOM_LLM_PROVIDER")
 
-        if "base_url" not in kwargs:
+        if "base_url" not in kwargs or kwargs["base_url"] is None:
             kwargs["api_base"] = EnvVarLoader.get_str("LLM_BASE_URL")
-        elif kwargs["base_url"] is not None:
+        elif kwargs["base_url"] is not None or kwargs["base_url"] is None:
             kwargs["api_base"] = kwargs.pop("base_url")
-        if "api_key" not in kwargs:
+        if "api_key" not in kwargs or kwargs["api_key"] is None:
             usage_type = kwargs.get("usage_type", LLM_USAGE_MASTER)
             kwargs["api_key"] = cls._get_api_key(usage_type)
 
