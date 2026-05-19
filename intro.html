@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiniClaw 项目介绍报告</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+  
+  :root {
+    --primary: #6366f1;
+    --primary-light: #818cf8;
+    --primary-dark: #4f46e5;
+    --accent: #06b6d4;
+    --bg-dark: #0f172a;
+    --bg-card: #1e293b;
+    --bg-card-hover: #334155;
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+    --text-dim: #64748b;
+    --success: #22c55e;
+    --warning: #eab308;
+    --danger: #ef4444;
+    --border: #334155;
+    --gradient-1: linear-gradient(135deg, #6366f1, #06b6d4);
+    --gradient-2: linear-gradient(135deg, #f59e0b, #ef4444);
+    --shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg-dark);
+    color: var(--text-main);
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* Hero Section */
+  .hero {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 2rem;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle at 30% 40%, rgba(99,102,241,0.12) 0%, transparent 50%),
+                radial-gradient(circle at 70% 60%, rgba(6,182,212,0.10) 0%, transparent 50%);
+    animation: aurora 20s ease-in-out infinite alternate;
+  }
+
+  @keyframes aurora {
+    0% { transform: translate(0, 0) rotate(0deg); }
+    100% { transform: translate(-5%, 5%) rotate(5deg); }
+  }
+
+  .hero-content { position: relative; z-index: 1; max-width: 900px; }
+
+  .hero-badge {
+    display: inline-block;
+    padding: 0.4rem 1.2rem;
+    background: rgba(99,102,241,0.15);
+    border: 1px solid rgba(99,102,241,0.3);
+    border-radius: 9999px;
+    font-size: 0.85rem;
+    color: var(--primary-light);
+    font-weight: 500;
+    margin-bottom: 1.5rem;
+    letter-spacing: 0.5px;
+  }
+
+  .hero h1 {
+    font-size: clamp(3rem, 8vw, 5.5rem);
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 0.8rem;
+    background: var(--gradient-1);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero .subtitle {
+    font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-bottom: 1rem;
+  }
+
+  .hero .tagline {
+    font-size: 1.05rem;
+    color: var(--text-dim);
+    max-width: 700px;
+    margin: 0 auto 2rem;
+  }
+
+  .hero-stats {
+    display: flex;
+    gap: 2.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 1.5rem;
+  }
+
+  .hero-stats .stat {
+    text-align: center;
+  }
+  .hero-stats .stat-num {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-light);
+  }
+  .hero-stats .stat-label {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .scroll-hint {
+    position: absolute;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    animation: bounce 2s infinite;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  @keyframes bounce {
+    0%, 100% { transform: translateX(-50%) translateY(0); }
+    50% { transform: translateX(-50%) translateY(8px); }
+  }
+
+  /* Container */
+  .container { max-width: 1200px; margin: 0 auto; padding: 0 2rem; }
+
+  /* Section */
+  .section {
+    padding: 5rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .section:last-child { border-bottom: none; }
+
+  .section-label {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+
+  .section-title {
+    font-size: clamp(1.8rem, 4vw, 2.5rem);
+    font-weight: 700;
+    margin-bottom: 1rem;
+    color: var(--text-main);
+  }
+
+  .section-desc {
+    color: var(--text-muted);
+    font-size: 1.05rem;
+    max-width: 700px;
+    margin-bottom: 2.5rem;
+  }
+
+  /* Cards Grid */
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.5rem; }
+  .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
+  .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.5rem; }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.8rem;
+    transition: all 0.3s ease;
+  }
+
+  .card:hover {
+    background: var(--bg-card-hover);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow);
+  }
+
+  .card-icon {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    margin-bottom: 1rem;
+  }
+
+  .card h3 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+    color: var(--text-main);
+  }
+
+  .card p {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    line-height: 1.6;
+  }
+
+  .card ul {
+    list-style: none;
+    padding: 0;
+    margin-top: 0.8rem;
+  }
+  .card ul li {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 0.3rem 0;
+    padding-left: 1.2rem;
+    position: relative;
+  }
+  .card ul li::before {
+    content: '→';
+    position: absolute;
+    left: 0;
+    color: var(--primary-light);
+  }
+
+  /* Feature Icons Colors */
+  .icon-purple { background: rgba(99,102,241,0.15); color: #818cf8; }
+  .icon-cyan { background: rgba(6,182,212,0.15); color: #22d3ee; }
+  .icon-green { background: rgba(34,197,94,0.15); color: #4ade80; }
+  .icon-yellow { background: rgba(234,179,8,0.15); color: #facc15; }
+  .icon-red { background: rgba(239,68,68,0.15); color: #f87171; }
+  .icon-pink { background: rgba(236,72,153,0.15); color: #f472b6; }
+  .icon-orange { background: rgba(249,115,22,0.15); color: #fb923c; }
+  .icon-indigo { background: rgba(129,140,248,0.15); color: #a5b4fc; }
+
+  /* Tree */
+  .tree-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2rem;
+    overflow-x: auto;
+  }
+
+  .tree {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 0.85rem;
+    line-height: 2;
+    color: var(--text-muted);
+    white-space: pre;
+  }
+
+  .tree .dir { color: var(--accent); font-weight: 600; }
+  .tree .file { color: var(--text-muted); }
+  .tree .highlight { color: var(--primary-light); font-weight: 500; }
+  .tree .comment { color: var(--text-dim); font-style: italic; }
+
+  /* Table */
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  thead {
+    background: rgba(99,102,241,0.08);
+  }
+
+  th {
+    padding: 1rem 1.2rem;
+    text-align: left;
+    font-weight: 600;
+    color: var(--primary-light);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  td {
+    padding: 0.9rem 1.2rem;
+    border-bottom: 1px solid rgba(51,65,85,0.5);
+    color: var(--text-muted);
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(99,102,241,0.04); }
+
+  .tag {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+  .tag-py { background: rgba(99,102,241,0.15); color: #818cf8; }
+  .tag-core { background: rgba(6,182,212,0.15); color: #22d3ee; }
+  .tag-tool { background: rgba(34,197,94,0.15); color: #4ade80; }
+  .tag-cli { background: rgba(234,179,8,0.15); color: #facc15; }
+
+  /* Info Box */
+  .info-box {
+    background: rgba(99,102,241,0.06);
+    border: 1px solid rgba(99,102,241,0.15);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+  }
+  .info-box-title {
+    font-weight: 600;
+    color: var(--primary-light);
+    margin-bottom: 0.5rem;
+  }
+  .info-box p { color: var(--text-muted); font-size: 0.9rem; }
+
+  /* Code */
+  code {
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    background: rgba(99,102,241,0.1);
+    color: var(--primary-light);
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.85em;
+  }
+
+  pre {
+    background: rgba(0,0,0,0.3);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.2rem 1.5rem;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--text-muted);
+  }
+
+  /* Arch Flow */
+  .arch-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+
+  .arch-node {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.8rem;
+    text-align: center;
+    font-weight: 500;
+    font-size: 0.9rem;
+    color: var(--text-main);
+    transition: all 0.3s;
+    min-width: 120px;
+  }
+
+  .arch-node:hover {
+    border-color: var(--primary);
+    background: rgba(99,102,241,0.08);
+  }
+
+  .arch-arrow {
+    color: var(--text-dim);
+    font-size: 1.5rem;
+    font-weight: 300;
+  }
+
+  .arch-node.accent { border-color: var(--accent); color: var(--accent); }
+  .arch-node.primary { border-color: var(--primary); color: var(--primary-light); }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    padding: 3rem 2rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+  }
+
+  .footer a { color: var(--primary-light); text-decoration: none; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .hero { min-height: 80vh; }
+    .hero-stats { gap: 1.5rem; }
+    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    .section { padding: 3rem 0; }
+    .arch-flow { flex-direction: column; }
+    .arch-arrow { transform: rotate(90deg); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== HERO ==================== -->
+<section class="hero">
+  <div class="hero-content">
+    <div class="hero-badge">🚀 v1.0.0 · Python 3.11+</div>
+    <h1>MiniClaw</h1>
+    <p class="subtitle">🤖 人工智能脚本手架工具</p>
+    <p class="tagline">
+      一个基于大语言模型的智能体编排与工具管理框架，提供交互式命令行界面与 Web 服务，
+      让 AI 辅助完成文件操作、浏览器自动化、任务规划、代码编写等各类复杂工作流。
+    </p>
+    <div class="hero-stats">
+      <div class="stat"><div class="stat-num">15+</div><div class="stat-label">内置工具</div></div>
+      <div class="stat"><div class="stat-num">2</div><div class="stat-label">运行模式</div></div>
+      <div class="stat"><div class="stat-num">17</div><div class="stat-label">Git 提交</div></div>
+      <div class="stat"><div class="stat-num">∞</div><div class="stat-label">无限可能</div></div>
+    </div>
+  </div>
+  <div class="scroll-hint">↓ 向下探索</div>
+</section>
+
+<div class="container">
+
+<!-- ==================== 项目概述 ==================== -->
+<section class="section">
+  <span class="section-label">Overview</span>
+  <h2 class="section-title">项目概述</h2>
+  <p class="section-desc">
+    MiniClaw 是一个基于大语言模型（LLM）驱动的智能体自动化框架，借鉴了 <strong>CoPaw</strong> 项目的设计理念。
+    它允许用户通过自然语言与 AI 交互，自动完成从简单的文件读写到复杂的多步骤任务编排。
+  </p>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-icon icon-purple">🎯</div>
+      <h3>核心定位</h3>
+      <p>AI 脚本手架工具 —— 通过自然语言驱动 AI 智能体完成各类自动化任务，是开发者的智能助手。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-cyan">⚡</div>
+      <h3>运行方式</h3>
+      <ul>
+        <li><strong>CLI 交互模式</strong> — 命令行对话界面，支持 Rich 实时 Markdown 渲染</li>
+        <li><strong>Web 服务器模式</strong> — FastAPI + Streaming SSE，支持 Web UI 前端调用</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-green">🧠</div>
+      <h3>AI 驱动</h3>
+      <p>基于 LiteLLM 抽象层，支持 DeepSeek、OpenAI、Claude 等数十种大模型。通过工具调用（Function Calling）实现自主操作。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-yellow">🔧</div>
+      <h3>适用场景</h3>
+      <ul>
+        <li>文件读写与代码生成</li>
+        <li>浏览器自动化操作</li>
+        <li>多步骤任务规划与执行</li>
+        <li>后端服务启动管理</li>
+        <li>智能对话与记忆管理</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="info-box">
+    <div class="info-box-title">📌 设计理念</div>
+    <p>
+      "小搔"（MiniClaw 的中文名）的核心理念是<strong>让 AI 自主完成任务</strong>：
+      只需要告诉 AI 你想要什么，它就能自动拆解任务、调用工具、推进执行，并在需要时向你汇报结果或请求进一步指示。
+    </p>
+  </div>
+</section>
+
+<!-- ==================== 目录结构 ==================== -->
+<section class="section">
+  <span class="section-label">Structure</span>
+  <h2 class="section-title">项目目录结构</h2>
+  <p class="section-desc">完整工程目录树，展示所有关键模块和文件的组织方式。</p>
+
+  <div class="tree-container">
+    <div class="tree">MiniClaw/
+├── <span class="dir">src/miniclaw/</span>          <span class="comment"># 核心源代码</span>
+│   ├── <span class="highlight">__main__.py</span>          <span class="comment"># 程序入口（CLI / Server 双模式）</span>
+│   ├── <span class="highlight">__init__.py</span>
+│   ├── <span class="highlight">__version__.py</span>       <span class="comment"># 版本号 v1.0.0</span>
+│   ├── <span class="highlight">constant.py</span>          <span class="comment"># 环境变量加载器 &amp; 全局常量</span>
+│   │
+│   ├── <span class="dir">agents/</span>                <span class="comment"># 智能体核心层</span>
+│   │   ├── <span class="highlight">base_llm_client.py</span>   <span class="comment"># LLM 抽象接口（流式/非流式）</span>
+│   │   ├── <span class="highlight">llm_configurator.py</span>  <span class="comment"># LLM 连接配置器</span>
+│   │   ├── <span class="highlight">llm_tools_manager.py</span> <span class="comment"># 工具注册 &amp; 调度管理器</span>
+│   │   ├── <span class="highlight">constant.py</span>          <span class="comment"># Agent 常量（子任务/计划）</span>
+│   │   ├── <span class="dir">providers/</span>
+│   │   │   └── <span class="highlight">litellm_provider.py</span>  <span class="comment"># LiteLLM 实现（默认 Provider）</span>
+│   │   ├── <span class="dir">tools/</span>                 <span class="comment"># 工具实现</span>
+│   │   │   ├── <span class="highlight">file_io.py</span>           <span class="comment"># 文件读写/编辑/追加/尾部读取</span>
+│   │   │   ├── <span class="highlight">file_search.py</span>       <span class="comment"># 文件查找 &amp; 内容搜索</span>
+│   │   │   ├── <span class="highlight">shell.py</span>            <span class="comment"># Shell 命令执行</span>
+│   │   │   ├── <span class="highlight">browser_control.py</span>  <span class="comment"># Playwright 浏览器自动化</span>
+│   │   │   ├── <span class="highlight">browser_snapshot.py</span>  <span class="comment"># 浏览器快照</span>
+│   │   │   ├── <span class="highlight">desktop_screenshot.py</span><span class="comment"># 桌面截图</span>
+│   │   │   ├── <span class="highlight">launch_detached.py</span>   <span class="comment"># 后台独立进程启动</span>
+│   │   │   ├── <span class="highlight">view_image.py</span>        <span class="comment"># 图片读取</span>
+│   │   │   ├── <span class="highlight">get_current_time.py</span>  <span class="comment"># 获取/设置时间</span>
+│   │   │   ├── <span class="highlight">llm_selector.py</span>      <span class="comment"># LLM 选择器</span>
+│   │   │   ├── <span class="highlight">mouse_control.py</span>     <span class="comment"># 鼠标控制</span>
+│   │   │   └── <span class="highlight">utils.py</span>             <span class="comment"># 工具通用工具函数</span>
+│   │   └── <span class="dir">skills/</span>               <span class="comment"># 技能扩展（预留）</span>
+│   │
+│   ├── <span class="dir">cli/</span>                   <span class="comment"># 命令行界面层</span>
+│   │   ├── <span class="highlight">main.py</span>              <span class="comment"># 主 CLI 交互循环</span>
+│   │   ├── <span class="highlight">actor.py</span>             <span class="comment"># Actor 基类（流式/非流式对话）</span>
+│   │   ├── <span class="highlight">clerk.py</span>             <span class="comment"># 子任务执行器（Clerk）</span>
+│   │   ├── <span class="highlight">planner.py</span>           <span class="comment"># 任务计划制定者（Planner）</span>
+│   │   ├── <span class="highlight">memory.py</span>            <span class="comment"># 记忆缓存管理</span>
+│   │   ├── <span class="highlight">secretary.py</span>         <span class="comment"># 秘书（扩展预留）</span>
+│   │   ├── <span class="highlight">console.py</span>           <span class="comment"># Rich 控制台配置</span>
+│   │   └── <span class="highlight">__init__.py</span>
+│   │
+│   ├── <span class="dir">app/</span>                   <span class="comment"># Web 服务层（FastAPI）</span>
+│   │   ├── <span class="highlight">_app.py</span>              <span class="comment"># FastAPI 应用主文件</span>
+│   │   ├── <span class="highlight">llm_chat_context.py</span>  <span class="comment"># 聊天上下文持久化</span>
+│   │   └── <span class="dir">routers/</span>
+│   │       └── <span class="highlight">llm_router.py</span>        <span class="comment"># /api/llm/chat &amp; /api/llm/stream</span>
+│   │
+│   ├── <span class="dir">config/</span>                <span class="comment"># 配置模块</span>
+│   │   ├── <span class="highlight">context.py</span>           <span class="comment"># 工作目录上下文</span>
+│   │   └── <span class="highlight">utils.py</span>
+│   │
+│   └── <span class="dir">utils/</span>                 <span class="comment"># 工具函数</span>
+│       ├── <span class="highlight">logger.py</span>            <span class="comment"># Loguru 日志配置</span>
+│       ├── <span class="highlight">security.py</span>          <span class="comment"># 密码掩码等安全工具</span>
+│       ├── <span class="highlight">common.py</span>            <span class="comment"># 通用工具函数（dt_uuid, clip）</span>
+│       └── <span class="highlight">turn_taking.py</span>        <span class="comment"># 对话轮次管理</span>
+│
+├── <span class="highlight">pyproject.toml</span>        <span class="comment"># 项目管理 &amp; Poetry 构建配置</span>
+├── <span class="highlight">.env.example</span>           <span class="comment"># 环境变量模板</span>
+├── <span class="highlight">miniclaw.bat</span>           <span class="comment"># Windows 启动脚本</span>
+├── <span class="highlight">README.md</span>              <span class="comment"># 项目说明文档</span>
+├── <span class="highlight">chat.html</span>              <span class="comment"># Web 聊天界面</span>
+├── <span class="highlight">chat_stream.html</span>       <span class="comment"># Web 流式聊天界面</span>
+│
+├── <span class="dir">tests/</span>                  <span class="comment"># 测试用例</span>
+│   ├── agents/providers/
+│   │   └── test_litellm_provider.py
+│   └── agents/tools/
+│       └── test_launch_detached.py
+│
+├── <span class="dir">litellm-proxy/</span>          <span class="comment"># LiteLLM 代理配置</span>
+│   ├── config.yaml
+│   └── test*.py               <span class="comment"># 多组测试脚本</span>
+│
+├── <span class="dir">dist/</span>                   <span class="comment"># 打包发布目录</span>
+│   ├── miniclaw-0.1.3-py3-none-any.whl
+│   └── miniclaw-0.1.3.tar.gz
+│
+├── <span class="dir">scripts/</span>                <span class="comment"># 扩展脚本</span>
+│   └── omnixai.py
+│
+└── <span class="highlight">.env</span>                   <span class="comment"># 本地环境变量（不提交）</span>
+</div>
+  </div>
+</section>
+
+<!-- ==================== 架构设计 ==================== -->
+<section class="section">
+  <span class="section-label">Architecture</span>
+  <h2 class="section-title">系统架构</h2>
+  <p class="section-desc">MiniClaw 采用分层架构设计，各模块职责分明，耦合度低，易于扩展。</p>
+
+  <div class="arch-flow">
+    <div class="arch-node primary">👤 用户输入</div>
+    <div class="arch-arrow">→</div>
+    <div class="arch-node">🎯 CLI / FastAPI</div>
+    <div class="arch-arrow">→</div>
+    <div class="arch-node accent">🧠 LLM Agent</div>
+    <div class="arch-arrow">→</div>
+    <div class="arch-node">🔧 工具执行</div>
+    <div class="arch-arrow">→</div>
+    <div class="arch-node primary">✅ 结果反馈</div>
+  </div>
+
+  <div class="grid-3" style="margin-top:2.5rem;">
+    <div class="card">
+      <div class="card-icon icon-purple">🎨</div>
+      <h3>交互层</h3>
+      <ul>
+        <li><strong>CLI</strong> — Rich 终端交互，支持 Markdown、思维链、工具调用实时渲染</li>
+        <li><strong>FastAPI Web</strong> — REST API + SSE 流式响应，支持前端页面</li>
+        <li><strong>命令系统</strong> — /help, /chat, /agent, /clear, /memory, /quit 等</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-cyan">🧩</div>
+      <h3>Agent 层</h3>
+      <ul>
+        <li><strong>BaseLLMClient</strong> — 抽象接口，定义 chat() 和 stream()</li>
+        <li><strong>LiteLLMClient</strong> — 默认实现，支持数十种大模型</li>
+        <li><strong>LLMToolsManager</strong> — 工具注册、启用/禁用、调度执行</li>
+        <li><strong>LLMConfigurator</strong> — 模型/API Key/Base URL 配置管理</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-green">⚙️</div>
+      <h3>执行层</h3>
+      <p>提供 15+ 个内置工具，涵盖文件操作、系统命令、浏览器自动化、截图、进程管理等完整能力。</p>
+      <ul>
+        <li>文件工具：read / write / edit / append / tail / search / find</li>
+        <li>系统工具：shell / launch_detached / time</li>
+        <li>浏览器工具：playwright 全面控制</li>
+        <li>视觉工具：desktop_screenshot / view_image</li>
+        <li>特殊工具：subtask_executor / make_plans</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="info-box" style="margin-top:2rem;">
+    <div class="info-box-title">🔄 对话流处理流程</div>
+    <p>
+      <strong>用户输入</strong> → LLM 流式响应（支持思维链 reasoning_content）→ 
+      若触发 <strong>tool_calls</strong> → 解析工具名和参数 → <strong>执行工具</strong>（文件/Shell/浏览器等）→ 
+      工具结果追加到消息历史 → <strong>继续下一轮 LLM 调用</strong>（自动循环）→ 
+      非工具调用结束时，<strong>Agent 模式</strong>下自动判断是否继续推进，<strong>Chat 模式</strong>下等待用户输入。
+    </p>
+  </div>
+</section>
+
+<!-- ==================== 核心功能 ==================== -->
+<section class="section">
+  <span class="section-label">Features</span>
+  <h2 class="section-title">核心功能特性</h2>
+  <p class="section-desc">MiniClaw 提供丰富而强大的功能，覆盖开发与运维的多个方面。</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-icon icon-purple">💬</div>
+      <h3>智能对话交互</h3>
+      <ul>
+        <li>支持流式 Markdown 实时渲染（Rich Live 组件）</li>
+        <li>支持 DeepSeek R1 等模型的思维链（reasoning_content）展示</li>
+        <li>双模式运行：<strong>Agent 模式</strong>（自动推进）和 <strong>Chat 模式</strong>（一问一答）</li>
+        <li>Token 用量和费用实时统计</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-green">📂</div>
+      <h3>完整文件操作</h3>
+      <ul>
+        <li>读取：支持指定行范围，自动检测编码</li>
+        <li>写入：自动为 CSV/TXT 添加 UTF-8 BOM 兼容 Excel</li>
+        <li>编辑：精确查找替换，保留原格式</li>
+        <li>追加：安全追加内容到文件尾部</li>
+        <li>尾部读取：高效读取日志文件的最后 N 行</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-cyan">🔍</div>
+      <h3>文件搜索系统</h3>
+      <ul>
+        <li><strong>grep_search</strong> — 基于 ripgrep 的内容搜索，支持正则、上下文行、文件名过滤</li>
+        <li><strong>glob_search</strong> — 基于 glob 模式的文件查找，支持通配符和目录限定</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-yellow">🌐</div>
+      <h3>浏览器自动化</h3>
+      <p>基于 Playwright 的全功能浏览器控制，支持 25+ 操作：</p>
+      <ul>
+        <li>导航：打开/跳转/后退/等待</li>
+        <li>交互：点击/输入/拖拽/悬停/选择</li>
+        <li>数据：截图/PDF/控制台日志/网络请求</li>
+        <li>管理：Cookie/标签页/对话框/CDP远程调试</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-red">🖥️</div>
+      <h3>桌面截图 &amp; 图像识别</h3>
+      <ul>
+        <li>跨平台桌面全屏截屏（Windows/macOS/Linux）</li>
+        <li>macOS 支持截取指定窗口</li>
+        <li>AI 可直接"查看"图片文件内容</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-pink">⚡</div>
+      <h3>后台进程管理</h3>
+      <p>启动独立进程脱离 Python 程序独立运行：</p>
+      <ul>
+        <li>Windows：通过 .bat + start /min 实现</li>
+        <li>Linux/macOS：通过 nohup 实现</li>
+        <li>适用场景：Spring Boot、Node.js、yarn/npm 构建等</li>
+        <li>所有输出重定向到指定日志文件</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-orange">📋</div>
+      <h3>子任务执行器（Clerk）</h3>
+      <ul>
+        <li>独立的对话上下文执行子任务</li>
+        <li>执行完毕后返回精简报告</li>
+        <li>支持层级嵌套（但限制不允许嵌套调用以避免无限循环）</li>
+        <li>自动总结执行结果（成功/失败 + 执行情况）</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-indigo">📐</div>
+      <h3>任务规划器（Planner）</h3>
+      <ul>
+        <li>自动将复杂任务拆分为结构化执行步骤</li>
+        <li>Markdown 格式计划文档，自动保存到本地</li>
+        <li>每个步骤明确工具、校验方法、依赖关系</li>
+        <li>支持进度跟踪（[X]/[ ] 标记）</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-green">🧠</div>
+      <h3>记忆管理系统</h3>
+      <ul>
+        <li>自动压缩超长对话上下文，保留关键信息</li>
+        <li>记忆缓存以 Markdown 文件形式持久化到磁盘</li>
+        <li>支持查看/检索历史记忆文件</li>
+        <li>自动清理超过 1000 条的旧记忆</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-cyan">🔌</div>
+      <h3>对话轮次管理</h3>
+      <ul>
+        <li>Agent 模式下自动判断是否继续推进任务</li>
+        <li>基于最近 N 条消息做决策（避免上下文太长）</li>
+        <li>可自定义决策提示词（CHAT_ADVANCE_SYSTEM_PROMPT）</li>
+        <li>避免循环对话流和无明确指向的继续处理</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 技术栈 ==================== -->
+<section class="section">
+  <span class="section-label">Tech Stack</span>
+  <h2 class="section-title">技术栈与依赖</h2>
+  <p class="section-desc">MiniClaw 基于现代 Python 技术栈构建，依赖管理使用 Poetry。</p>
+
+  <div class="grid-3">
+    <div class="card">
+      <div class="card-icon icon-purple">📦</div>
+      <h3>核心框架</h3>
+      <ul>
+        <li><strong>Python 3.11+</strong> — 异步编程（asyncio）</li>
+        <li><strong>FastAPI 0.136+</strong> — Web API 服务器</li>
+        <li><strong>Uvicorn 0.47+</strong> — ASGI 服务器</li>
+        <li><strong>Pydantic 2.13+</strong> — 数据模型验证</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-cyan">🤖</div>
+      <h3>AI / LLM</h3>
+      <ul>
+        <li><strong>LiteLLM 1.82+</strong> — 统一 LLM API 接口</li>
+        <li>支持 DeepSeek / OpenAI / Claude / Gemini 等</li>
+        <li>Function Calling（工具调用）</li>
+        <li>流式与非流式响应</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-green">🛠️</div>
+      <h3>工具库</h3>
+      <ul>
+        <li><strong>Playwright</strong> — 浏览器自动化</li>
+        <li><strong>Rich</strong> — 终端 Markdown/表格/面板渲染</li>
+        <li><strong>Loguru</strong> — 日志管理（按天轮替/压缩）</li>
+        <li><strong>python-dotenv</strong> — 环境变量管理</li>
+        <li><strong>mss</strong> — 跨平台屏幕截图</li>
+        <li><strong>prompt-toolkit</strong> — 命令行输入提示</li>
+        <li><strong>httpx / aiofiles</strong> — HTTP 与异步文件 I/O</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="table-wrap" style="margin-top:2rem;">
+    <table>
+      <thead>
+        <tr>
+          <th>依赖</th>
+          <th>版本</th>
+          <th>用途</th>
+          <th>类型</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Python</td><td>≥3.11, &lt;4.0</td><td>运行环境</td><td><span class="tag tag-core">核心</span></td></tr>
+        <tr><td>FastAPI</td><td>≥0.136.1</td><td>Web 框架</td><td><span class="tag tag-core">核心</span></td></tr>
+        <tr><td>Uvicorn</td><td>≥0.47.0</td><td>ASGI 服务器</td><td><span class="tag tag-core">核心</span></td></tr>
+        <tr><td>LiteLLM</td><td>≥1.82.6</td><td>LLM 统一接口</td><td><span class="tag tag-core">核心</span></td></tr>
+        <tr><td>Pydantic</td><td>≥2.13.4</td><td>数据验证</td><td><span class="tag tag-py">模型</span></td></tr>
+        <tr><td>Loguru</td><td>≥0.7.3</td><td>日志管理</td><td><span class="tag tag-py">工具</span></td></tr>
+        <tr><td>Rich</td><td>≥13.0</td><td>终端渲染</td><td><span class="tag tag-cli">CLI</span></td></tr>
+        <tr><td>Playwright</td><td>latest</td><td>浏览器自动化</td><td><span class="tag tag-tool">工具</span></td></tr>
+        <tr><td>python-dotenv</td><td>≥1.2.2</td><td>环境变量</td><td><span class="tag tag-py">工具</span></td></tr>
+        <tr><td>mss</td><td>≥10.2.0</td><td>屏幕截图</td><td><span class="tag tag-tool">工具</span></td></tr>
+        <tr><td>prompt-toolkit</td><td>≥3.0.52</td><td>交互式提示</td><td><span class="tag tag-cli">CLI</span></td></tr>
+        <tr><td>aiofiles</td><td>≥25.1.0</td><td>异步文件操作</td><td><span class="tag tag-py">工具</span></td></tr>
+        <tr><td>httpx</td><td>≥0.28.1</td><td>HTTP 客户端</td><td><span class="tag tag-py">工具</span></td></tr>
+        <tr><td>PyYAML</td><td>≥6.0.3</td><td>YAML 解析</td><td><span class="tag tag-py">工具</span></td></tr>
+        <tr><td>shortuuid</td><td>≥1.0.13</td><td>短 UUID 生成</td><td><span class="tag tag-py">工具</span></td></tr>
+        <tr><td>Poetry</td><td>≥2.0</td><td>构建/打包</td><td><span class="tag tag-py">开发</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ==================== 配置系统 ==================== -->
+<section class="section">
+  <span class="section-label">Configuration</span>
+  <h2 class="section-title">环境变量配置</h2>
+  <p class="section-desc">通过 .env 文件配置所有运行参数，支持灵活切换模型和运行行为。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>环境变量</th>
+          <th>默认值</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code>LLM_MODEL</code></td><td>—</td><td>模型标识，如 <code>deepseek/deepseek-v4-flash</code>、<code>openai/gpt-4o</code></td></tr>
+        <tr><td><code>LLM_API_KEY</code></td><td>—</td><td>API 密钥</td></tr>
+        <tr><td><code>LLM_BASE_URL</code></td><td>—</td><td>API 地址，如 <code>https://api.deepseek.com</code></td></tr>
+        <tr><td><code>LLM_TEMPERATURE</code></td><td>1</td><td>温度参数，控制随机性</td></tr>
+        <tr><td><code>LLM_MAX_TOKENS</code></td><td>4096</td><td>最大生成 Token 数</td></tr>
+        <tr><td><code>LLM_CLIENT_PROVIDER</code></td><td>litellm</td><td>LLM 客户端提供商</td></tr>
+        <tr><td><code>CUSTOM_LLM_PROVIDER</code></td><td>—</td><td>自定义 LLM 提供商（如 openai）</td></tr>
+        <tr><td><code>LLM_ENABLED_TOOLS</code></td><td>*</td><td>启用的工具列表（* 表示全部）</td></tr>
+        <tr><td><code>LLM_DISABLED_TOOLS</code></td><td>—</td><td>禁用的工具列表（逗号分隔）</td></tr>
+        <tr><td><code>SERVER_HOST</code></td><td>0.0.0.0</td><td>Web 服务监听地址</td></tr>
+        <tr><td><code>SERVER_PORT</code></td><td>8000</td><td>Web 服务端口</td></tr>
+        <tr><td><code>LOG_DIR</code></td><td>~/.miniclaw/logs</td><td>日志存储目录</td></tr>
+        <tr><td><code>LOG_LEVEL</code></td><td>debug</td><td>日志级别</td></tr>
+        <tr><td><code>MINICLAW_MEMORY_DIR</code></td><td>~/.miniclaw/memory</td><td>记忆缓存存储目录</td></tr>
+        <tr><td><code>CHAT_SYSTEM_PROMPT</code></td><td>内置提示词</td><td>系统提示词（可自定义 AI 行为）</td></tr>
+        <tr><td><code>CLERK_SYSTEM_PROMPT</code></td><td>内置提示词</td><td>子任务执行器提示词</td></tr>
+        <tr><td><code>CHAT_ADVANCE_SYSTEM_PROMPT</code></td><td>内置提示词</td><td>决策者提示词（是否继续推进）</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ==================== 工具系统 ==================== -->
+<section class="section">
+  <span class="section-label">Tools</span>
+  <h2 class="section-title">内置工具详解</h2>
+  <p class="section-desc">MiniClaw 提供 15+ 个内置工具，覆盖开发者日常需要的各类自动化能力。</p>
+
+  <div class="grid-3">
+    <div class="card">
+      <div class="card-icon icon-purple">📄</div>
+      <h3>read_file</h3>
+      <p>读取文件内容，支持指定行范围，自动检测编码。相对路径基于工作目录解析。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-purple">✏️</div>
+      <h3>write_file</h3>
+      <p>创建或覆盖文件。自动为 CSV/TXT 添加 UTF-8 BOM 以兼容 Windows Excel。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-purple">🔁</div>
+      <h3>edit_file</h3>
+      <p>精确查找替换文本内容，保留原文件格式。支持文件存在性校验。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-purple">➕</div>
+      <h3>append_file</h3>
+      <p>安全追加内容到文件末尾，不会破坏已有内容。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-purple">📋</div>
+      <h3>tail_file</h3>
+      <p>高效读取大文件的最后 N 行，适用于日志文件监控。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-cyan">🔎</div>
+      <h3>search_file_contents</h3>
+      <p>基于 ripgrep 的文件内容搜索，支持正则、上下文行、文件名过滤。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-cyan">📁</div>
+      <h3>find_files</h3>
+      <p>基于 glob 模式的文件查找（如 *.py、**/*.json），支持目录限定。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-green">💻</div>
+      <h3>execute_shell_command</h3>
+      <p>执行 Shell 命令。支持超时设置、工作目录指定。内置安全策略，禁止自杀式操作。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-yellow">🌐</div>
+      <h3>control_browser</h3>
+      <p>Playwright 浏览器自动化，25+ 操作类型，支持 headless/headed 模式。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-red">📸</div>
+      <h3>capture_screenshot</h3>
+      <p>跨平台桌面全屏截图，macOS 支持指定窗口截取。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-pink">🖼️</div>
+      <h3>view_image</h3>
+      <p>将图片文件加载到 LLM 上下文中，让 AI 能"看见"图片。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-orange">🚀</div>
+      <h3>launch_detached</h3>
+      <p>后台启动独立进程（Spring Boot/Node.js/npm 等），输出重定向到日志。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-indigo">⏰</div>
+      <h3>get_current_time</h3>
+      <p>获取当前系统时间，支持时区信息。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-indigo">🌍</div>
+      <h3>set_user_timezone</h3>
+      <p>设置用户时区。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-cyan">🧑‍💼</div>
+      <h3>subtask_executor</h3>
+      <p>使用独立对话上下文执行子任务，返回精简执行报告。不允许嵌套调用避免无限循环。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-purple">📐</div>
+      <h3>make_plans</h3>
+      <p>根据需求制定结构化 Markdown 任务计划，自动持久化到本地。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 模块详解 ==================== -->
+<section class="section">
+  <span class="section-label">Modules</span>
+  <h2 class="section-title">核心模块详解</h2>
+  <p class="section-desc">深入了解 MiniClaw 各核心模块的设计与职责。</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-icon icon-purple">🏗️</div>
+      <h3>__main__.py — 双模式入口</h3>
+      <p>支持两种运行模式：</p>
+      <ul>
+        <li><code>miniclaw</code> — 默认进入 CLI 交互模式</li>
+        <li><code>miniclaw server</code> — 启动 FastAPI Web 服务</li>
+        <li><code>miniclaw cli</code> — 显式启动 CLI 模式</li>
+        <li><code>miniclaw -v</code> — 查看版本号</li>
+      </ul>
+      <p>通过 argparse 解析命令参数，支持 --host/--port/--log-level 等配置。</p>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-cyan">🧬</div>
+      <h3>base_llm_client.py — LLM 抽象层</h3>
+      <p>定义了统一的 AI 交互接口：</p>
+      <ul>
+        <li><strong>LLMStreamChunk</strong> — 流式响应块，包含 delta、finish、tool_calls、token 统计</li>
+        <li><strong>LLMResponse</strong> — 非流式完整响应，包含 content、reasoning_content、cost</li>
+        <li><strong>ToolResponse</strong> — 工具执行结果，支持文本和图片混合内容</li>
+        <li><strong>BaseLLMClient</strong> — 抽象基类，定义 chat() 和 stream() 接口</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-green">🔧</div>
+      <h3>llm_tools_manager.py — 工具调度中心</h3>
+      <ul>
+        <li>15+ 工具的注册、启用/禁用管理</li>
+        <li>通过 <code>LLM_ENABLED_TOOLS</code> 和 <code>LLM_DISABLED_TOOLS</code> 环境变量控制</li>
+        <li>智能检测 LLM 拼接 JSON 对象错误，返回友好提示</li>
+        <li>工具定义完整（名称、描述、参数 JSON Schema），供 LLM 调用</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-yellow">📞</div>
+      <h3>cli/main.py — CLI 交互引擎</h3>
+      <ul>
+        <li>完整的命令系统（/help, /chat, /agent, /clear, /memory 等）</li>
+        <li>流式 Markdown 渲染优化（缓冲刷新减少终端闪烁）</li>
+        <li>Runtime Mode 切换：Agent（自动推进） / Chat（一问一答）</li>
+        <li>记忆缓存上下文注入</li>
+        <li>Token 和费用统计展示</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-red">🧑‍💼</div>
+      <h3>cli/clerk.py — 子任务执行器</h3>
+      <ul>
+        <li>独立的 Clerk 类，拥有独立的对话上下文</li>
+        <li>排除 subtask_executor 工具防止递归嵌套</li>
+        <li>执行完毕后自动调用 LLM 总结执行结果</li>
+        <li>层级追踪（layer），便于日志调试</li>
+        <li>支持自动推进（类似 Agent 模式）</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-icon icon-orange">📐</div>
+      <h3>cli/planner.py — 任务规划器</h3>
+      <ul>
+        <li>继承 Actor 基类，接收用户需求自动生成计划文档</li>
+        <li>计划文件自动保存到 <code>~/.miniclaw/plans/</code> 目录</li>
+        <li>包含 > 10 条详细规划规则（步骤粒度、校验方法、依赖关系）</li>
+        <li>生成失败时自动分析原因并返回</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 安全机制 ==================== -->
+<section class="section">
+  <span class="section-label">Security</span>
+  <h2 class="section-title">安全与防护机制</h2>
+  <p class="section-desc">MiniClaw 内置了多重安全防护措施，防止 AI 误操作导致系统问题。</p>
+
+  <div class="grid-3">
+    <div class="card">
+      <div class="card-icon icon-red">🛡️</div>
+      <h3>自杀式操作防护</h3>
+      <p>系统提示中明确告知 LLM 不要通过 Shell 工具停止当前进程（PID 已注入提示词）。Git 历史显示专门提交了"安全检查：禁止执行可能导致自杀式操作的命令"。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-yellow">🔗</div>
+      <h3>JSON 拼接检测</h3>
+      <p>工具管理器内置正则检测，当 LLM 错误地将多个 JSON 对象拼接发送时，自动拦截并返回清晰错误提示，避免误操作。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-green">🔑</div>
+      <h3>敏感信息掩码</h3>
+      <p><code>security.py</code> 提供密码掩码功能，在终端展示 API Key 时仅显示前3位和后3位，中间用星号代替。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-cyan">🚫</div>
+      <h3>工具权限控制</h3>
+      <p>通过 <code>LLM_ENABLED_TOOLS</code> 和 <code>LLM_DISABLED_TOOLS</code> 环境变量，可精确控制 AI 可使用和禁用的工具列表。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-purple">🔄</div>
+      <h3>递归嵌套防护</h3>
+      <p>Clerk（子任务执行器）的 tools 列表中排除了 <code>subtask_executor</code>，从机制上防止了 Clerk 无限递归调用。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-pink">⏱️</div>
+      <h3>超时控制</h3>
+      <p>Shell 命令执行支持超时设置（默认 60 秒），防止长时间运行的命令阻塞系统。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 快速开始 ==================== -->
+<section class="section">
+  <span class="section-label">Quick Start</span>
+  <h2 class="section-title">快速开始</h2>
+  <p class="section-desc">5 步即可启动 MiniClaw，体验 AI 驱动的自动化工作流。</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-icon icon-purple">1️⃣</div>
+      <h3>安装 Python 环境</h3>
+      <p>需要 <strong>Python 3.11+</strong>。推荐使用 Miniconda 管理环境：</p>
+      <pre>conda create -n miniclaw311 python=3.11
+conda activate miniclaw311</pre>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-cyan">2️⃣</div>
+      <h3>安装 Poetry 和依赖</h3>
+      <pre>pip install poetry
+cd MiniClaw/
+poetry install</pre>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-green">3️⃣</div>
+      <h3>配置环境变量</h3>
+      <p>复制 <code>.env.example</code> 为 <code>.env</code>，填入你的 API Key 和模型配置：</p>
+      <pre>LLM_MODEL=deepseek/deepseek-v4-flash
+LLM_API_KEY=sk-your-key-here
+LLM_BASE_URL=https://api.deepseek.com</pre>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-yellow">4️⃣</div>
+      <h3>安装额外依赖（可选）</h3>
+      <pre>pip install playwright
+playwright install
+pip install uvicorn</pre>
+    </div>
+    <div class="card" style="grid-column: 1 / -1;">
+      <div class="card-icon icon-red">5️⃣</div>
+      <h3>启动 MiniClaw</h3>
+      <p>修改 <code>miniclaw.bat</code> 中的 Python 路径后直接运行：</p>
+      <pre>miniclaw.bat</pre>
+      <p>或直接使用 Python 命令启动：</p>
+      <pre>python -m miniclaw</pre>
+      <p>启动后你将看到炫彩的终端界面，输入 <code>/help</code> 查看所有可用命令。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 开发与测试 ==================== -->
+<section class="section">
+  <span class="section-label">Development</span>
+  <h2 class="section-title">开发与测试说明</h2>
+  <p class="section-desc">项目提供完整的测试框架和调试支持，方便二次开发和功能扩展。</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-icon icon-purple">🧪</div>
+      <h3>测试框架</h3>
+      <ul>
+        <li>使用 <strong>pytest</strong> + <strong>pytest-asyncio</strong> 进行异步测试</li>
+        <li>测试用例位于 <code>tests/</code> 目录</li>
+        <li>支持 @pytest.mark.asyncio 装饰器</li>
+      </ul>
+      <pre>poetry add --group dev pytest-asyncio
+pytest</pre>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-cyan">🐛</div>
+      <h3>调试方式</h3>
+      <p>在需要进行调试的位置插入 PDB 断点：</p>
+      <pre>import pdb; pdb.set_trace()</pre>
+      <p>然后通过 CLI 模式运行即可进入交互式调试。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-green">📦</div>
+      <h3>构建打包</h3>
+      <p>使用 Poetry 进行构建和发布：</p>
+      <pre>poetry build
+# dist/ 目录下生成 .whl 和 .tar.gz</pre>
+      <p>当前已发布版本：<strong>0.1.3</strong></p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-yellow">🔌</div>
+      <h3>扩展新工具</h3>
+      <ol>
+        <li>在 <code>agents/tools/</code> 下创建工具函数文件</li>
+        <li>在 <code>llm_tools_manager.py</code> 的 <code>BUILTIN_TOOLS</code> 中注册</li>
+        <li>在 <code>tools/__init__.py</code> 中导出</li>
+        <li>LLM 将自动发现并使用新工具</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== Web API ==================== -->
+<section class="section">
+  <span class="section-label">API</span>
+  <h2 class="section-title">Web API 接口</h2>
+  <p class="section-desc">FastAPI 服务提供标准 REST 和 SSE 流式接口，方便构建前端应用。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>接口</th>
+          <th>方法</th>
+          <th>说明</th>
+          <th>请求体</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>/</code></td>
+          <td>GET</td>
+          <td>根路径，返回项目描述信息</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td><code>/api/version</code></td>
+          <td>GET</td>
+          <td>返回当前 MiniClaw 版本号</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td><code>/api/llm/chat</code></td>
+          <td>POST</td>
+          <td>非流式对话（单轮），自动管理聊天上下文</td>
+          <td><code>{cid, messages, model?, temperature?, max_tokens?}</code></td>
+        </tr>
+        <tr>
+          <td><code>/api/llm/stream</code></td>
+          <td>POST</td>
+          <td>SSE 流式对话，支持工具调用自动化</td>
+          <td><code>{cid, messages, model?, temperature?, max_tokens?}</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="info-box" style="margin-top:2rem;">
+    <div class="info-box-title">📡 SSE 事件流</div>
+    <p>
+      <strong>/api/llm/stream</strong> 使用 Server-Sent Events（SSE）协议，包含以下事件类型：<br>
+      <code>event: chunk</code> — 文本增量内容<br>
+      <code>event: tool_call</code> — 工具调用（含完整工具参数）<br>
+      <code>event: done</code> — 对话完成（含 Token 统计和费用）<br>
+      <code>event: error</code> — 错误信息
+    </p>
+  </div>
+
+  <p style="margin-top:1.5rem;">项目根目录提供了两个前端演示页面：<code>chat.html</code>（普通）和 <code>chat_stream.html</code>（流式），可直接在浏览器中打开使用。</p>
+</section>
+
+<!-- ==================== 项目特点总结 ==================== -->
+<section class="section">
+  <span class="section-label">Summary</span>
+  <h2 class="section-title">项目特点总结</h2>
+  <p class="section-desc">MiniClaw 的核心竞争力和独特价值。</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-icon icon-purple">🎯</div>
+      <h3>极简交互</h3>
+      <p>自然语言驱动，无需学习复杂命令。告诉 AI 你想做什么，剩下的交给它。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-cyan">🧩</div>
+      <h3>高度可扩展</h3>
+      <p>基于抽象接口设计，Provider、Tool、Agent 均可自由替换和扩展。新增一个工具只需注册即可。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-green">🔄</div>
+      <h3>智能任务推进</h3>
+      <p>Agent 模式可自动判断任务是否完成，自主推动对话继续执行，无需人工干预。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-yellow">💰</div>
+      <h3>成本可控</h3>
+      <p>实时显示 Token 用量和费用，记忆压缩机制减少长对话开销。支持配置不同模型处理不同类型任务。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-red">🛡️</div>
+      <h3>安全优先</h3>
+      <p>多重安全防护：自杀式操作防护、JSON 错误检测、工具权限控制、递归嵌套防护。</p>
+    </div>
+    <div class="card">
+      <div class="card-icon icon-pink">📦</div>
+      <h3>开箱即用</h3>
+      <p>Poetry 管理依赖，一个 <code>.env</code> 文件完成配置，Windows/Linux/macOS 全平台支持。</p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<!-- ==================== FOOTER ==================== -->
+<footer class="footer">
+  <p>
+    MiniClaw 项目介绍报告 · 生成于 2026-05-19<br>
+    Powered by AI Analysis · Built with ❤️
+  </p>
+</footer>
+
+</body>
+</html>
