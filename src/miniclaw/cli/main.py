@@ -149,6 +149,8 @@ class CommandLineInteraction:
             console.print(table)
         elif command == "chat":
             self.runtime_mode = "chat"
+        elif command == "agent":
+            self.runtime_mode = "agent"
         elif command == "clear":
             self._init_messages()
             console.print(f"[green]✅ 清除对话上下文完成[/green]")
@@ -306,7 +308,7 @@ class CommandLineInteraction:
                 await aprint(f"\n\n发生错误: {e}")
 
     async def stream(self, user_input: str):
-        """处理用户输入并流式显示 LLM 响应"""
+        """处理用户输入并流��显示 LLM 响应"""
         self.messages.append({"role": "user", "content": user_input})
 
         while True:
@@ -314,12 +316,6 @@ class CommandLineInteraction:
                 # 每一轮请求都重新初始化内容收集器，确保流式渲染正确
                 collected_content = ""
                 collected_reasoning_content = ""
-                # Windows 终端闪烁问题的优化：使用缓冲计数器减少刷新频率
-                # 每累积至少 REFRESH_THRESHOLD 个字符或收到完成信号时才刷新界面
-                REFRESH_THRESHOLD = 30
-                # 内容刷新缓冲
-                buffered_content = ""
-                buffered_reasoning = ""
                 # 使用Live组件实现流式Markdown渲染
                 waiting_spinner = Spinner("dots", text="", style="bold blue")
                 with Live(waiting_spinner, console=console, auto_refresh=False, vertical_overflow="visible") as live:
@@ -336,9 +332,8 @@ class CommandLineInteraction:
                         if chunk.delta:
                             if chunk.delta_type == "content":
                                 collected_content += chunk.delta
-                                buffered_content += chunk.delta
-                                # 缓冲达到阈值或内容不为空时才刷新，减少终端重绘频率
-                                if len(buffered_content) >= REFRESH_THRESHOLD and collected_content.strip():
+                                # 实时渲染Markdown
+                                if collected_content.strip():
                                     live.update(
                                         Panel(
                                             Markdown(collected_content),
@@ -346,12 +341,10 @@ class CommandLineInteraction:
                                         ),
                                         refresh=True
                                     )
-                                    buffered_content = ""
                             elif chunk.delta_type == "reasoning_content":
                                 collected_reasoning_content += chunk.delta
-                                buffered_reasoning += chunk.delta
-                                # 缓冲达到阈值或内容不为空时才刷新
-                                if len(buffered_reasoning) >= REFRESH_THRESHOLD and collected_reasoning_content.strip():
+                                # 实时渲染Markdown
+                                if collected_reasoning_content.strip():
                                     live.update(
                                         Panel(
                                             Markdown(collected_reasoning_content),
@@ -361,32 +354,10 @@ class CommandLineInteraction:
                                         ),
                                         refresh=True
                                     )
-                                    buffered_reasoning = ""
 
 
                         # 处理完成
                         if chunk.finish:
-                            # 完成时刷新剩余的缓冲内容
-                            if buffered_content and collected_content.strip():
-                                live.update(
-                                    Panel(
-                                        Markdown(collected_content),
-                                        title="AI"
-                                    ),
-                                    refresh=True
-                                )
-                                buffered_content = ""
-                            if buffered_reasoning and collected_reasoning_content.strip():
-                                live.update(
-                                    Panel(
-                                        Markdown(collected_reasoning_content),
-                                        title="AI 思维链",
-                                        border_style="grey50",
-                                        style="dim"
-                                    ),
-                                    refresh=True
-                                )
-                                buffered_reasoning = ""
                             if chunk.finish_reason == "tool_calls":
                                 if len(collected_reasoning_content) > 0:
                                     self.messages.append(
@@ -496,7 +467,7 @@ class CommandLineInteraction:
                                         "content": collected_content
                                     })
 
-
+                                logger.debug(f"大模型响应的消息：\n【content】:{collected_content}\n\n【reasoning_content:{collected_reasoning_content}】")
 
 
                                 if self.runtime_mode == "agent":
