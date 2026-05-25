@@ -55,25 +55,25 @@ class LiteLLMClient(BaseLLMClient):
                 content = msg.content.strip() if hasattr(msg, "content") and msg.content else ""
                 reasoning_content = msg.content.strip() if hasattr(msg, "reasoning_content") and msg.reasoning_content else ""
 
-            pt, ct, tt = None, None, None
-            if hasattr(response, "usage") and response.usage is not None:
-                pt = getattr(response.usage, "prompt_tokens", None)
-                ct = getattr(response.usage, "completion_tokens", None)
-                tt = getattr(response.usage, "total_tokens", None)
-
-            cost = None
-            try:
-                cost = completion_cost(response)
-            except Exception:
-                pass
+            # pt, ct, tt = None, None, None
+            # if hasattr(response, "usage") and response.usage is not None:
+            #     pt = getattr(response.usage, "prompt_tokens", None)
+            #     ct = getattr(response.usage, "completion_tokens", None)
+            #     tt = getattr(response.usage, "total_tokens", None)
+            #
+            # cost = None
+            # try:
+            #     cost = completion_cost(response)
+            # except Exception:
+            #     pass
 
             return LLMResponse(
                 content=content,
                 reasoning_content=reasoning_content,
-                prompt_tokens=pt,
-                completion_tokens=ct,
-                total_tokens=tt,
-                cost_usd=cost
+                # prompt_tokens=pt,
+                # completion_tokens=ct,
+                # total_tokens=tt,
+                # cost_usd=cost
             )
 
         except Exception as e:
@@ -149,10 +149,10 @@ class LiteLLMClient(BaseLLMClient):
                     cost_usd = None
 
                     # 优先用模型返回的 usage（例如 OpenAI）
-                    if hasattr(chunk, "usage") and chunk.usage is not None:
-                        prompt_tokens = getattr(chunk.usage, "prompt_tokens", None)
-                        completion_tokens = getattr(chunk.usage, "completion_tokens", None)
-                        total_tokens = getattr(chunk.usage, "total_tokens", None)
+                    # if hasattr(chunk, "usage") and chunk.usage is not None:
+                    #     prompt_tokens = getattr(chunk.usage, "prompt_tokens", None)
+                    #     completion_tokens = getattr(chunk.usage, "completion_tokens", None)
+                    #     total_tokens = getattr(chunk.usage, "total_tokens", None)
 
                     yield LLMStreamChunk(
                         delta=delta,
@@ -167,10 +167,10 @@ class LiteLLMClient(BaseLLMClient):
                         }] if finish_reason == "tool_calls" else None,
                         finish=True,
                         finish_reason= finish_reason,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        total_tokens=total_tokens,
-                        cost_usd=cost_usd
+                        # prompt_tokens=prompt_tokens,
+                        # completion_tokens=completion_tokens,
+                        # total_tokens=total_tokens,
+                        # cost_usd=cost_usd
                     )
                 else:
                     if not is_tool_call:

@@ -447,12 +447,12 @@ class CommandLineInteraction:
 
                             else:
                                 # 显示token使用情况
-                                if chunk.prompt_tokens:
-                                    console.print(f"\n[dim]📊 Tokens: 输入={chunk.prompt_tokens}, "
-                                                  f"输出={chunk.completion_tokens}, "
-                                                  f"总计={chunk.total_tokens}[/dim]")
-                                if chunk.cost_usd:
-                                    console.print(f"[dim]💰 费用: ${chunk.cost_usd:.6f}[/dim]")
+                                # if chunk.prompt_tokens:
+                                #     console.print(f"\n[dim]📊 Tokens: 输入={chunk.prompt_tokens}, "
+                                #                   f"输出={chunk.completion_tokens}, "
+                                #                   f"总计={chunk.total_tokens}[/dim]")
+                                # if chunk.cost_usd:
+                                #     console.print(f"[dim]💰 费用: ${chunk.cost_usd:.6f}[/dim]")
 
                                 # 将助手响应添加到历史
                                 if len(collected_reasoning_content) > 0:
