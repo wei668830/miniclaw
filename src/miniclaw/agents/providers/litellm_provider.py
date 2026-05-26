@@ -30,6 +30,8 @@ class LiteLLMClient(BaseLLMClient):
         if "usage_type" in kwargs:
             kwargs.pop("usage_type")
 
+        logger.info(f"构建 LiteLLM 请求参数:[model]:{kwargs['model']}, [api_base]:{kwargs['api_base']}, [api_key]:{kwargs['api_key'][:10]}")
+
         return kwargs
 
     async def chat(
