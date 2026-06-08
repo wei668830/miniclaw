@@ -212,3 +212,9 @@ service_running.txt
 
 # 本项目特殊文件
 scripts/
+
+# playwright
+browser/
+
+# runtime
+miniclaw/
