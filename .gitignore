@@ -215,6 +215,3 @@ scripts/
 
 # playwright
 browser/
-
-# runtime
-miniclaw/
