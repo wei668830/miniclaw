@@ -17,34 +17,28 @@ BUILTIN_TOOLS = {
             "type": "function",
             "function": {
                 "name": "read_file",
-                "description": """Read a file.
-                Use start_line/end_line to read a specific line range (output includes
-                line numbers). Omit both to read the full file.
-                IMPORTANT: This function accepts ONLY a single JSON object as arguments.
-                Do NOT concatenate multiple JSON objects (e.g., {"file_path":"a"}{"file_path":"b"} is INVALID).
-                Each invocation reads exactly ONE file; to read multiple files you MUST call this tool separately for each file.
-                """,
+                "description": "Reads the content of EXACTLY ONE file. You are STRICTLY PROHIBITED from concatenating multiple JSON objects or reading multiple files in a single tool call. If multiple files need to be read, invoke this tool separately for each file, one at a time.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "file_path": {
                             "type": "string",
-                            "description": "Path to the file. Relative paths resolve from WORKING_DIR.",
+                            "description": "The path of a SINGLE file to read. Must be a single string (e.g., 'src/main.py'). DO NOT pass an array or comma-separated list of paths.",
                             "minLength": 1
                         },
                         "start_line": {
                             "type": "integer",
-                            "description": "First line to read (1-based, inclusive)",
-                            "minLength": 1
+                            "description": "The starting line number (1-based, inclusive).",
+                            "minimum": 1
                         },
                         "end_line": {
                             "type": "integer",
-                            "description": "Last line to read (1-based, inclusive)",
-                            "minLength": 1
-                        },
+                            "description": "The ending line number (1-based, inclusive).",
+                            "minimum": 1
+                        }
                     },
                     "required": ["file_path"]
-                },
+                }
             }
         }
     },
