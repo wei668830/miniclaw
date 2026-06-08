@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MiniClaw - 代码知识图谱</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #0f0f1a; color: #cdd6f4; }
+        #graph-container { width: 100%; height: 100vh; position: relative; }
+        svg { width: 100%; height: 100%; display: block; }
+        .header { position: absolute; top: 0; left: 0; right: 0; z-index: 10; padding: 14px 24px; background: linear-gradient(135deg, rgba(26,26,46,0.95) 0%, rgba(15,15,30,0.9) 100%); border-bottom: 1px solid rgba(255,255,255,0.06); backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .header h1 { font-size: 18px; font-weight: 700; letter-spacing: 1px; }
+        .header h1 span { color: #1890ff; }
+        .header .subtitle { font-size: 12px; color: #8888aa; margin-top: 2px; }
+        .header .stats { font-size: 12px; color: #8888aa; display: flex; gap: 16px; flex-wrap: wrap; justify-content: flex-end; }
+        .header .stats b { color: #cdd6f4; }
+        .legend { position: absolute; bottom: 24px; right: 24px; z-index: 10; background: rgba(26,26,46,0.92); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 14px 18px; backdrop-filter: blur(12px); min-width: 180px; max-width: 260px; max-height: 45vh; overflow: auto; }
+        .legend h3 { font-size: 12px; font-weight: 600; margin-bottom: 8px; color: #a0a0c0; letter-spacing: 1px; }
+        .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12px; color: #cdd6f4; }
+        .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.1); }
+        .legend-edge { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12px; color: #8888aa; }
+        .legend-edge .line { width: 24px; height: 2px; flex-shrink: 0; border-radius: 1px; }
+        .tooltip { position: absolute; z-index: 100; pointer-events: none; background: rgba(20,20,40,0.95); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 14px 18px; backdrop-filter: blur(12px); max-width: 360px; font-size: 13px; line-height: 1.6; display: none; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+        .tooltip .tt-name { font-weight: 700; color: #fff; font-size: 14px; margin-bottom: 4px; }
+        .tooltip .tt-type { font-size: 11px; color: #1890ff; margin-bottom: 6px; }
+        .tooltip .tt-desc { color: #a0a0c0; font-size: 12px; }
+        .tooltip .tt-filepath { font-size: 11px; color: #8888aa; margin-top: 6px; word-break: break-all; line-height: 1.4; }
+        .controls { position: absolute; bottom: 24px; left: 24px; z-index: 10; display: flex; gap: 8px; flex-wrap: wrap; }
+        .controls button { background: rgba(26,26,46,0.85); border: 1px solid rgba(255,255,255,0.08); color: #cdd6f4; padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 12px; backdrop-filter: blur(8px); transition: all 0.2s; }
+        .controls button:hover { background: rgba(24,144,255,0.2); border-color: rgba(24,144,255,0.3); }
+        .node-group { cursor: pointer; }
+        .node-circle { stroke-width: 2; transition: all 0.2s; }
+        .node-group:hover .node-circle { stroke-width: 3; filter: brightness(1.2); }
+        .node-label { font-size: 11px; fill: #cdd6f4; pointer-events: none; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+        .node-highlight { fill: none; stroke: rgba(255,255,255,0.08); stroke-width: 1.5; }
+        .node-group.selected .node-circle { stroke: #fff; stroke-width: 3; filter: brightness(1.35); }
+        .node-group.selected .node-highlight { stroke: rgba(24,144,255,0.8); stroke-width: 2.5; }
+        .link-line { stroke-opacity: 0.42; transition: all 0.2s; }
+        .link-label { font-size: 9px; fill: #8888aa; pointer-events: none; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
+        .search-box { position: absolute; top: 74px; left: 50%; transform: translateX(-50%); z-index: 10; width: 380px; max-width: 90vw; }
+        .search-box input { width: 100%; padding: 10px 16px 10px 36px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(26,26,46,0.9); color: #cdd6f4; font-size: 13px; outline: none; backdrop-filter: blur(12px); transition: all 0.2s; }
+        .search-box input:focus { border-color: #1890ff; background: rgba(26,26,46,0.95); }
+        .search-box input::placeholder { color: #666; }
+        .search-box .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #666; font-size: 14px; pointer-events: none; }
+        .footer-note { position: absolute; right: 24px; top: 76px; z-index: 10; font-size: 11px; color: #666a88; background: rgba(26,26,46,0.6); padding: 6px 10px; border-radius: 8px; backdrop-filter: blur(8px); }
+        @media (max-width: 768px) {
+            .header { padding: 10px 16px; flex-direction: column; align-items: flex-start; }
+            .header .stats { justify-content: flex-start; }
+            .legend { display: none; }
+            .search-box { top: 104px; }
+            .footer-note { display: none; }
+        }
+    </style>
+</head>
+<body>
+<div id="graph-container">
+    <div class="header">
+        <div>
+            <h1>📊 <span>代码知识图谱</span></h1>
+            <div class="subtitle">MiniClaw · 静态扫描近似分析 · 目录结构 / 依赖 / 路由 / API 调用</div>
+        </div>
+        <div class="stats">
+            <span>扫描文件 <b id="scan-count">61</b></span>
+            <span>纳入主文件 <b id="main-file-count">61</b></span>
+            <span>节点 <b id="node-count">106</b></span>
+            <span>关系 <b id="link-count">107</b></span>
+            <span>模块 <b id="module-count">9</b></span>
+        </div>
+    </div>
+    <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-input" placeholder="搜索文件名、模块、路径或关键词..." oninput="filterGraph(this.value)">
+    </div>
+    <div class="footer-note">核心源码与配置优先，忽略构建产物/依赖目录</div>
+    <div class="tooltip" id="tooltip"></div>
+    <div class="legend">
+        <h3>图 例</h3>
+        <div class="legend-item"><span class="legend-dot" style="background:#1890ff;"></span>入口/路由</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#13c2c2;"></span>前端视图</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#52c41a;"></span>业务模块</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#722ed1;"></span>模型/类型</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#fa8c16;"></span>配置/构建</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#f5222d;"></span>数据/API</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#8888aa;"></span>工具脚本</div>
+        <div class="legend-item" style="margin-top:6px;border-top:1px solid rgba(255,255,255,0.06);padding-top:6px;">
+            <span class="legend-dot" style="background:#fff;width:8px;height:8px;border-radius:0;transform:rotate(45deg);"></span>外部依赖
+        </div>
+        <div style="margin-top:6px;border-top:1px solid rgba(255,255,255,0.06);padding-top:6px;">
+            <div class="legend-edge"><span class="line" style="background:#52c41a;"></span>导入 / 依赖</div>
+            <div class="legend-edge"><span class="line" style="background:#1890ff;"></span>路由 / 页面跳转</div>
+            <div class="legend-edge"><span class="line" style="background:#fa8c16;"></span>API 调用</div>
+            <div class="legend-edge"><span class="line" style="background:#eb2f96;"></span>数据 / 状态 / 存储</div>
+        </div>
+    </div>
+    <div class="controls">
+        <button onclick="zoomToFit()">🔲 适应画布</button>
+        <button onclick="resetGraph()">⟲ 重置布局</button>
+        <button onclick="exportPNG()">📷 导出为 PNG</button>
+    </div>
+</div>
+<script>
+    const nodes = [{"id": "README_md", "label": "README.md", "module": "root", "type": "service", "group": 3, "path": "README.md", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 88 行", "size": 13}, {"id": "litellm-proxy__README_md", "label": "README.md", "module": "litellm-proxy", "type": "service", "group": 3, "path": "litellm-proxy/README.md", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 58 行", "size": 12}, {"id": "litellm-proxy__test_py", "label": "test.py", "module": "litellm-proxy", "type": "service", "group": 3, "path": "litellm-proxy/test.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 14 行", "size": 10}, {"id": "litellm-proxy__test4img_py", "label": "test4img.py", "module": "litellm-proxy", "type": "service", "group": 3, "path": "litellm-proxy/test4img.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 32 行", "size": 11}, {"id": "litellm-proxy__test4longcontext_py", "label": "test4longcontext.py", "module": "litellm-proxy", "type": "service", "group": 3, "path": "litellm-proxy/test4longcontext.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 457 行", "size": 26}, {"id": "litellm-proxy__test4std_py", "label": "test4std.py", "module": "litellm-proxy", "type": "service", "group": 3, "path": "litellm-proxy/test4std.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 14 行", "size": 10}, {"id": "litellm-proxy__test4stream_py", "label": "test4stream.py", "module": "litellm-proxy", "type": "service", "group": 3, "path": "litellm-proxy/test4stream.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 67 行", "size": 12}, {"id": "miniclaw__generate_code_graph_py", "label": "generate_code_graph.py", "module": "miniclaw", "type": "entry", "group": 1, "path": "miniclaw/generate_code_graph.py", "desc": "入口/路由 · 包含路由/入口定义 / 包含 API 调用 / 包含状态管理 · 674 行", "size": 26}, {"id": "pyproject_toml", "label": "pyproject.toml", "module": "root", "type": "model", "group": 4, "path": "pyproject.toml", "desc": "模型/类型 · 包含路由/入口定义 / 包含 AI/LLM 逻辑 · 42 行", "size": 11}, {"id": "scripts__cosy_voice_py", "label": "cosy_voice.py", "module": "scripts", "type": "service", "group": 3, "path": "scripts/cosy_voice.py", "desc": "业务模块 · 49 行", "size": 11}, {"id": "scripts__omnixai_py", "label": "omnixai.py", "module": "scripts", "type": "service", "group": 3, "path": "scripts/omnixai.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 17 行", "size": 10}, {"id": "scripts__omnixai_litellm_py", "label": "omnixai_litellm.py", "module": "scripts", "type": "service", "group": 3, "path": "scripts/omnixai_litellm.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 52 行", "size": 12}, {"id": "src__miniclaw____init___py", "label": "__init__.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/__init__.py", "desc": "业务模块 · 0 行", "size": 10}, {"id": "src__miniclaw____main___py", "label": "__main__.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/__main__.py", "desc": "业务模块 · 105 行", "size": 14}, {"id": "src__miniclaw____version___py", "label": "__version__.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/__version__.py", "desc": "业务模块 · 2 行", "size": 10}, {"id": "src__miniclaw__agents____init___py", "label": "__init__.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/__init__.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 21 行", "size": 10}, {"id": "src__miniclaw__agents__base_llm_client_py", "label": "base_llm_client.py", "module": "src", "type": "model", "group": 4, "path": "src/miniclaw/agents/base_llm_client.py", "desc": "模型/类型 · 包含 AI/LLM 逻辑 · 96 行", "size": 13}, {"id": "src__miniclaw__agents__constant_py", "label": "constant.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/constant.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 2 行", "size": 10}, {"id": "src__miniclaw__agents__llm_configurator_py", "label": "llm_configurator.py", "module": "src", "type": "config", "group": 5, "path": "src/miniclaw/agents/llm_configurator.py", "desc": "配置/构建 · 包含 AI/LLM 逻辑 · 64 行", "size": 12}, {"id": "src__miniclaw__agents__llm_tools_manager_py", "label": "llm_tools_manager.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/llm_tools_manager.py", "desc": "业务模块 · 包含路由/入口定义 / 包含 API 调用 / 包含 AI/LLM 逻辑 · 779 行", "size": 26}, {"id": "src__miniclaw__agents__providers____init___py", "label": "__init__.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/providers/__init__.py", "desc": "业务模块 · 0 行", "size": 10}, {"id": "src__miniclaw__agents__providers__litellm_provider_py", "label": "litellm_provider.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/providers/litellm_provider.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 191 行", "size": 17}, {"id": "src__miniclaw__agents__skills____init___py", "label": "__init__.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/skills/__init__.py", "desc": "业务模块 · 0 行", "size": 10}, {"id": "src__miniclaw__agents__tools____init___py", "label": "__init__.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/__init__.py", "desc": "业务模块 · 25 行", "size": 11}, {"id": "src__miniclaw__agents__tools__browser_control_py", "label": "browser_control.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/browser_control.py", "desc": "业务模块 · 包含 API 调用 / 包含状态管理 / 包含 AI/LLM 逻辑 · 3490 行", "size": 26}, {"id": "src__miniclaw__agents__tools__browser_snapshot_py", "label": "browser_snapshot.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/browser_snapshot.py", "desc": "业务模块 · 包含状态管理 · 248 行", "size": 19}, {"id": "src__miniclaw__agents__tools__desktop_screenshot_py", "label": "desktop_screenshot.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/desktop_screenshot.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 141 行", "size": 15}, {"id": "src__miniclaw__agents__tools__file_io_py", "label": "file_io.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/file_io.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 435 行", "size": 26}, {"id": "src__miniclaw__agents__tools__file_search_py", "label": "file_search.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/file_search.py", "desc": "业务模块 · 包含路由/入口定义 / 包含 AI/LLM 逻辑 · 630 行", "size": 26}, {"id": "src__miniclaw__agents__tools__get_current_time_py", "label": "get_current_time.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/get_current_time.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 92 行", "size": 13}, {"id": "src__miniclaw__agents__tools__launch_detached_py", "label": "launch_detached.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/launch_detached.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 647 行", "size": 26}, {"id": "src__miniclaw__agents__tools__llm_selector_py", "label": "llm_selector.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/llm_selector.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 7 行", "size": 10}, {"id": "src__miniclaw__agents__tools__mouse_control_py", "label": "mouse_control.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/mouse_control.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 543 行", "size": 26}, {"id": "src__miniclaw__agents__tools__shell_py", "label": "shell.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/shell.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 380 行", "size": 25}, {"id": "src__miniclaw__agents__tools__utils_py", "label": "utils.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/utils.py", "desc": "业务模块 · 24 行", "size": 10}, {"id": "src__miniclaw__agents__tools__view_image_py", "label": "view_image.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/agents/tools/view_image.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 81 行", "size": 13}, {"id": "src__miniclaw__app____init___py", "label": "__init__.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/app/__init__.py", "desc": "业务模块 · 0 行", "size": 10}, {"id": "src__miniclaw__app___app_py", "label": "_app.py", "module": "src", "type": "entry", "group": 1, "path": "src/miniclaw/app/_app.py", "desc": "入口/路由 · 包含路由/入口定义 / 包含 AI/LLM 逻辑 · 62 行", "size": 12}, {"id": "src__miniclaw__app__llm_chat_context_py", "label": "llm_chat_context.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/app/llm_chat_context.py", "desc": "业务模块 · 58 行", "size": 12}, {"id": "src__miniclaw__app__routers____init___py", "label": "__init__.py", "module": "src", "type": "entry", "group": 1, "path": "src/miniclaw/app/routers/__init__.py", "desc": "入口/路由 · 包含路由/入口定义 / 包含 AI/LLM 逻辑 · 3 行", "size": 10}, {"id": "src__miniclaw__app__routers__llm_router_py", "label": "llm_router.py", "module": "src", "type": "entry", "group": 1, "path": "src/miniclaw/app/routers/llm_router.py", "desc": "入口/路由 · 包含路由/入口定义 / 包含 AI/LLM 逻辑 · 159 行", "size": 16}, {"id": "src__miniclaw__cli____init___py", "label": "__init__.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/cli/__init__.py", "desc": "业务模块 · 0 行", "size": 10}, {"id": "src__miniclaw__cli__actor_py", "label": "actor.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/cli/actor.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 232 行", "size": 19}, {"id": "src__miniclaw__cli__clerk_py", "label": "clerk.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/cli/clerk.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 235 行", "size": 19}, {"id": "src__miniclaw__cli__console_py", "label": "console.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/cli/console.py", "desc": "业务模块 · 33 行", "size": 11}, {"id": "src__miniclaw__cli__main_py", "label": "main.py", "module": "src", "type": "entry", "group": 1, "path": "src/miniclaw/cli/main.py", "desc": "入口/路由 · 包含 AI/LLM 逻辑 · 509 行", "size": 26}, {"id": "src__miniclaw__cli__memory_py", "label": "memory.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/cli/memory.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 46 行", "size": 11}, {"id": "src__miniclaw__cli__planner_py", "label": "planner.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/cli/planner.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 88 行", "size": 13}, {"id": "src__miniclaw__cli__secretary_py", "label": "secretary.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/cli/secretary.py", "desc": "业务模块 · 0 行", "size": 10}, {"id": "src__miniclaw__config____init___py", "label": "__init__.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/config/__init__.py", "desc": "业务模块 · 12 行", "size": 10}, {"id": "src__miniclaw__config__context_py", "label": "context.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/config/context.py", "desc": "业务模块 · 7 行", "size": 10}, {"id": "src__miniclaw__config__utils_py", "label": "utils.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/config/utils.py", "desc": "业务模块 · 338 行", "size": 23}, {"id": "src__miniclaw__constant_py", "label": "constant.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/constant.py", "desc": "业务模块 · 85 行", "size": 13}, {"id": "src__miniclaw__utils____init___py", "label": "__init__.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/utils/__init__.py", "desc": "业务模块 · 0 行", "size": 10}, {"id": "src__miniclaw__utils__common_py", "label": "common.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/utils/common.py", "desc": "业务模块 · 32 行", "size": 11}, {"id": "src__miniclaw__utils__logger_py", "label": "logger.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/utils/logger.py", "desc": "业务模块 · 47 行", "size": 11}, {"id": "src__miniclaw__utils__security_py", "label": "security.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/utils/security.py", "desc": "业务模块 · 6 行", "size": 10}, {"id": "src__miniclaw__utils__turn_taking_py", "label": "turn_taking.py", "module": "src", "type": "service", "group": 3, "path": "src/miniclaw/utils/turn_taking.py", "desc": "业务模块 · 61 行", "size": 12}, {"id": "tests__agents__providers__test_litellm_provider_py", "label": "test_litellm_provider.py", "module": "tests", "type": "service", "group": 3, "path": "tests/agents/providers/test_litellm_provider.py", "desc": "业务模块 · 包含 AI/LLM 逻辑 · 155 行", "size": 16}, {"id": "tests__agents__tools__test_launch_detached_py", "label": "test_launch_detached.py", "module": "tests", "type": "service", "group": 3, "path": "tests/agents/tools/test_launch_detached.py", "desc": "业务模块 · 13 行", "size": 10}, {"id": "tests__agents__tools__test_launch_detached_debug_py", "label": "test_launch_detached_debug.py", "module": "tests", "type": "service", "group": 3, "path": "tests/agents/tools/test_launch_detached_debug.py", "desc": "业务模块 · 205 行", "size": 18}, {"id": "external____future__", "label": "__future__", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__abc", "label": "abc", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__aioconsole", "label": "aioconsole", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__collections", "label": "collections", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__concurrent", "label": "concurrent", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__contextlib", "label": "contextlib", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__cosyvoice_cli_cosyvoice", "label": "cosyvoice.cli.cosyvoice", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__datetime", "label": "datetime", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__dotenv", "label": "dotenv", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__fastapi", "label": "fastapi", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__fastapi_middleware_cors", "label": "fastapi.middleware.cors", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__fastapi_responses", "label": "fastapi.responses", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__fastapi_staticfiles", "label": "fastapi.staticfiles", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__litellm", "label": "litellm", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__loguru", "label": "loguru", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__miniclaw___version__", "label": "miniclaw.__version__", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__miniclaw_agents_tools", "label": "miniclaw.agents.tools", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__miniclaw_cli_main", "label": "miniclaw.cli.main", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__miniclaw_cli_memory", "label": "miniclaw.cli.memory", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__miniclaw_constant", "label": "miniclaw.constant", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__modelscope", "label": "modelscope", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__openai", "label": "openai", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__pathlib", "label": "pathlib", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__playsound", "label": "playsound", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__playwright_async_api", "label": "playwright.async_api", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__playwright_sync_api", "label": "playwright.sync_api", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__prompt_toolkit", "label": "prompt_toolkit", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__prompt_toolkit_completion", "label": "prompt_toolkit.completion", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__prompt_toolkit_history", "label": "prompt_toolkit.history", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__pydantic", "label": "pydantic", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__rich_console", "label": "rich.console", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__rich_live", "label": "rich.live", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__rich_markdown", "label": "rich.markdown", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__rich_panel", "label": "rich.panel", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__rich_spinner", "label": "rich.spinner", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__rich_table", "label": "rich.table", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__string", "label": "string", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__types", "label": "types", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__typing", "label": "typing", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "external__zoneinfo", "label": "zoneinfo", "module": "外部依赖", "type": "external", "group": 8, "path": "", "desc": "外部依赖", "size": 10}, {"id": "route___", "label": "/", "module": "路由", "type": "entry", "group": 1, "path": "", "desc": "检测到路由/页面路径：/", "size": 10}, {"id": "route___api_version", "label": "/api/version", "module": "路由", "type": "entry", "group": 1, "path": "", "desc": "检测到路由/页面路径：/api/version", "size": 10}, {"id": "route___chat", "label": "/chat", "module": "路由", "type": "entry", "group": 1, "path": "", "desc": "检测到路由/页面路径：/chat", "size": 10}, {"id": "route___stream", "label": "/stream", "module": "路由", "type": "entry", "group": 1, "path": "", "desc": "检测到路由/页面路径：/stream", "size": 10}, {"id": "api__storage_miniclaw", "label": "storage/miniclaw", "module": "接口", "type": "data", "group": 6, "path": "", "desc": "检测到存储或数据库相关访问", "size": 10}];
+    const links = [{"source": "litellm-proxy__test_py", "target": "external__litellm", "kind": "import", "label": "引用包"}, {"source": "litellm-proxy__test4img_py", "target": "external__litellm", "kind": "import", "label": "引用包"}, {"source": "litellm-proxy__test4img_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "litellm-proxy__test4longcontext_py", "target": "external__litellm", "kind": "import", "label": "引用包"}, {"source": "litellm-proxy__test4std_py", "target": "external__litellm", "kind": "import", "label": "引用包"}, {"source": "litellm-proxy__test4stream_py", "target": "external__litellm", "kind": "import", "label": "引用包"}, {"source": "miniclaw__generate_code_graph_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "miniclaw__generate_code_graph_py", "target": "external__string", "kind": "import", "label": "引用包"}, {"source": "miniclaw__generate_code_graph_py", "target": "api__storage_miniclaw", "kind": "data", "label": "数据访问"}, {"source": "scripts__cosy_voice_py", "target": "external__cosyvoice_cli_cosyvoice", "kind": "import", "label": "引用包"}, {"source": "scripts__cosy_voice_py", "target": "external__modelscope", "kind": "import", "label": "引用包"}, {"source": "scripts__cosy_voice_py", "target": "external__playsound", "kind": "import", "label": "引用包"}, {"source": "scripts__omnixai_py", "target": "external__openai", "kind": "import", "label": "引用包"}, {"source": "scripts__omnixai_litellm_py", "target": "external__litellm", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw____main___py", "target": "external__dotenv", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw____main___py", "target": "external__miniclaw___version__", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw____main___py", "target": "external__miniclaw_cli_main", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw____main___py", "target": "external__miniclaw_constant", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__base_llm_client_py", "target": "external__abc", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__base_llm_client_py", "target": "external__pydantic", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__base_llm_client_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__llm_configurator_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__llm_tools_manager_py", "target": "external__loguru", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__llm_tools_manager_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__providers__litellm_provider_py", "target": "external__litellm", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__providers__litellm_provider_py", "target": "external__loguru", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__providers__litellm_provider_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__browser_control_py", "target": "external__concurrent", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__browser_control_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__browser_control_py", "target": "external__playwright_async_api", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__browser_control_py", "target": "external__playwright_sync_api", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__browser_control_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__browser_snapshot_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__file_io_py", "target": "external__collections", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__file_io_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__file_io_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__file_search_py", "target": "external__collections", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__file_search_py", "target": "external__loguru", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__file_search_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__file_search_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__get_current_time_py", "target": "external__datetime", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__get_current_time_py", "target": "external__zoneinfo", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__launch_detached_py", "target": "external__datetime", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__launch_detached_py", "target": "external__loguru", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__launch_detached_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__launch_detached_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__mouse_control_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__shell_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__shell_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__agents__tools__view_image_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app___app_py", "target": "external__contextlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app___app_py", "target": "external__fastapi", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app___app_py", "target": "external__fastapi_middleware_cors", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app___app_py", "target": "external__fastapi_responses", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app___app_py", "target": "external__fastapi_staticfiles", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app___app_py", "target": "external__loguru", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app___app_py", "target": "route___", "kind": "route", "label": "路由定义"}, {"source": "src__miniclaw__app___app_py", "target": "route___api_version", "kind": "route", "label": "路由定义"}, {"source": "src__miniclaw__app__llm_chat_context_py", "target": "external__loguru", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app__llm_chat_context_py", "target": "external__miniclaw_constant", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app__llm_chat_context_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app__llm_chat_context_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app__routers__llm_router_py", "target": "external__fastapi", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app__routers__llm_router_py", "target": "external__fastapi_responses", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app__routers__llm_router_py", "target": "external__loguru", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app__routers__llm_router_py", "target": "external__pydantic", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app__routers__llm_router_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__app__routers__llm_router_py", "target": "route___chat", "kind": "route", "label": "路由定义"}, {"source": "src__miniclaw__app__routers__llm_router_py", "target": "route___stream", "kind": "route", "label": "路由定义"}, {"source": "src__miniclaw__cli__actor_py", "target": "external__loguru", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__actor_py", "target": "external__rich_live", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__actor_py", "target": "external__rich_markdown", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__actor_py", "target": "external__rich_panel", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__actor_py", "target": "external__rich_spinner", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__actor_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__clerk_py", "target": "external__loguru", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__clerk_py", "target": "external__rich_live", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__clerk_py", "target": "external__rich_markdown", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__clerk_py", "target": "external__rich_panel", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__clerk_py", "target": "external__rich_spinner", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__console_py", "target": "external__prompt_toolkit", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__console_py", "target": "external__prompt_toolkit_completion", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__console_py", "target": "external__prompt_toolkit_history", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__console_py", "target": "external__rich_console", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__console_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__main_py", "target": "external__aioconsole", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__main_py", "target": "external__loguru", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__main_py", "target": "external__miniclaw_cli_memory", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__main_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__main_py", "target": "external__rich_live", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__main_py", "target": "external__rich_markdown", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__main_py", "target": "external__rich_panel", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__main_py", "target": "external__rich_spinner", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__main_py", "target": "external__rich_table", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__memory_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__cli__planner_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__config__context_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__config__utils_py", "target": "external____future__", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__config__utils_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__config__utils_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__constant_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__utils__common_py", "target": "external__datetime", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__utils__common_py", "target": "external__typing", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__utils__logger_py", "target": "external__loguru", "kind": "import", "label": "引用包"}, {"source": "src__miniclaw__utils__logger_py", "target": "external__pathlib", "kind": "import", "label": "引用包"}, {"source": "tests__agents__providers__test_litellm_provider_py", "target": "external__types", "kind": "import", "label": "引用包"}, {"source": "tests__agents__tools__test_launch_detached_py", "target": "external__miniclaw_agents_tools", "kind": "import", "label": "引用包"}];
+    const typeStyles = {"entry": {"color": "#1890ff", "label": "入口/路由"}, "frontend": {"color": "#13c2c2", "label": "前端视图"}, "service": {"color": "#52c41a", "label": "业务模块"}, "model": {"color": "#722ed1", "label": "模型/类型"}, "config": {"color": "#fa8c16", "label": "配置/构建"}, "data": {"color": "#f5222d", "label": "数据/API"}, "tool": {"color": "#8888aa", "label": "工具脚本"}, "external": {"color": "#ffffff", "label": "外部依赖"}};
+    const linkStyles = {"import": {"color": "#52c41a", "label": "导入 / 依赖"}, "route": {"color": "#1890ff", "label": "路由 / 页面跳转"}, "api": {"color": "#fa8c16", "label": "API 调用"}, "data": {"color": "#eb2f96", "label": "数据 / 状态 / 存储"}};
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    const container = d3.select('#graph-container');
+    const svg = container.append('svg');
+    const root = svg.append('g');
+    const linkLayer = root.append('g').attr('class', 'links');
+    const labelLayer = root.append('g').attr('class', 'link-labels');
+    const nodeLayer = root.append('g').attr('class', 'nodes');
+    const tooltip = d3.select('#tooltip');
+    const zoom = d3.zoom().scaleExtent([0.2, 4]).on('zoom', event => root.attr('transform', event.transform));
+    svg.call(zoom);
+    const simulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(links).id(d => d.id).distance(d => d.kind === 'import' ? 90 : 120).strength(0.25))
+        .force('charge', d3.forceManyBody().strength(d => d.type === 'external' ? -180 : -320))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(d => (d.size || 12) + 18));
+    const link = linkLayer.selectAll('line').data(links).enter().append('line').attr('class', 'link-line').attr('stroke', d => (linkStyles[d.kind] || linkStyles.import).color).attr('stroke-width', d => d.kind === 'route' ? 2.2 : 1.6);
+    const linkLabel = labelLayer.selectAll('text').data(links).enter().append('text').attr('class', 'link-label').text(d => d.label || '');
+    const node = nodeLayer.selectAll('g').data(nodes).enter().append('g').attr('class', 'node-group').call(d3.drag().on('start', dragstarted).on('drag', dragged).on('end', dragended));
+    node.append('circle').attr('class', 'node-highlight').attr('r', d => (d.size || 12) + 5);
+    node.append('circle').attr('class', 'node-circle').attr('r', d => d.size || 12).attr('fill', d => (typeStyles[d.type] || typeStyles.service).color).attr('stroke', d => d.type === 'external' ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.12)');
+    node.append('text').attr('class', 'node-label').attr('dy', d => (d.size || 12) + 15).attr('text-anchor', 'middle').text(d => d.label);
+    let selectedNodeId = null;
+    node.on('mouseover', function(event, d) { showTooltip(event, d); })
+        .on('mousemove', function(event, d) { if (selectedNodeId !== d.id) moveTooltip(event); })
+        .on('mouseout', function(event, d) { if (selectedNodeId !== d.id) hideTooltip(); })
+        .on('click', function(event, d) {
+            event.stopPropagation();
+            if (selectedNodeId === d.id) {
+                selectedNodeId = null;
+                node.classed('selected', false);
+                hideTooltip();
+                clearFocus();
+                return;
+            }
+            selectedNodeId = d.id;
+            node.classed('selected', n => n.id === d.id);
+            showTooltip(event, d);
+            focusNode(d.id);
+        });
+    svg.on('click', function() {
+        selectedNodeId = null;
+        node.classed('selected', false);
+        hideTooltip();
+        clearFocus();
+    });
+    simulation.on('tick', () => {
+        link.attr('x1', d => d.source.x).attr('y1', d => d.source.y).attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+        linkLabel.attr('x', d => (d.source.x + d.target.x) / 2).attr('y', d => (d.source.y + d.target.y) / 2);
+        node.attr('transform', d => 'translate(' + d.x + ',' + d.y + ')');
+    });
+    function showTooltip(event, d) {
+        tooltip.style('display', 'block').html(
+            '<div class="tt-name">' + escapeHtml(d.label) + '</div>' +
+            '<div class="tt-type">' + escapeHtml((typeStyles[d.type] || { label: d.type }).label) + ' · ' + escapeHtml(d.module || '未分类') + '</div>' +
+            '<div class="tt-desc">' + escapeHtml(d.desc || '') + '</div>' +
+            '<div class="tt-filepath">' + escapeHtml(d.path || '虚拟节点 / 外部依赖') + '</div>'
+        );
+        moveTooltip(event);
+    }
+    function moveTooltip(event) {
+        const pad = 18;
+        const box = tooltip.node().getBoundingClientRect();
+        let left = event.pageX + pad;
+        let top = event.pageY + pad;
+        if (left + box.width > window.innerWidth - 10) left = event.pageX - box.width - pad;
+        if (top + box.height > window.innerHeight - 10) top = event.pageY - box.height - pad;
+        tooltip.style('left', left + 'px').style('top', top + 'px');
+    }
+    function hideTooltip() { tooltip.style('display', 'none'); }
+    function focusNode(nodeId) {
+        const connected = new Set([nodeId]);
+        links.forEach(l => {
+            const s = typeof l.source === 'object' ? l.source.id : l.source;
+            const t = typeof l.target === 'object' ? l.target.id : l.target;
+            if (s === nodeId) connected.add(t);
+            if (t === nodeId) connected.add(s);
+        });
+        node.style('opacity', d => connected.has(d.id) ? 1 : 0.18);
+        link.style('opacity', d => {
+            const s = typeof d.source === 'object' ? d.source.id : d.source;
+            const t = typeof d.target === 'object' ? d.target.id : d.target;
+            return s === nodeId || t === nodeId ? 0.95 : 0.08;
+        });
+        linkLabel.style('opacity', d => {
+            const s = typeof d.source === 'object' ? d.source.id : d.source;
+            const t = typeof d.target === 'object' ? d.target.id : d.target;
+            return s === nodeId || t === nodeId ? 0.9 : 0.06;
+        });
+    }
+    function clearFocus() {
+        node.style('opacity', 1);
+        link.style('opacity', 1);
+        linkLabel.style('opacity', 1);
+    }
+    function filterGraph(keyword) {
+        const q = (keyword || '').trim().toLowerCase();
+        if (!q) {
+            clearFocus();
+            node.style('display', null);
+            link.style('display', null);
+            linkLabel.style('display', null);
+            return;
+        }
+        const matched = new Set(nodes.filter(d =>
+            (d.label || '').toLowerCase().includes(q) ||
+            (d.module || '').toLowerCase().includes(q) ||
+            (d.path || '').toLowerCase().includes(q) ||
+            (d.desc || '').toLowerCase().includes(q)
+        ).map(d => d.id));
+        node.style('display', d => matched.has(d.id) ? null : 'none');
+        link.style('display', d => {
+            const s = typeof d.source === 'object' ? d.source.id : d.source;
+            const t = typeof d.target === 'object' ? d.target.id : d.target;
+            return matched.has(s) || matched.has(t) ? null : 'none';
+        });
+        linkLabel.style('display', d => {
+            const s = typeof d.source === 'object' ? d.source.id : d.source;
+            const t = typeof d.target === 'object' ? d.target.id : d.target;
+            return matched.has(s) || matched.has(t) ? null : 'none';
+        });
+    }
+    function zoomToFit() {
+        const bounds = root.node().getBBox();
+        if (!bounds.width || !bounds.height) return;
+        const fullWidth = window.innerWidth;
+        const fullHeight = window.innerHeight;
+        const scale = Math.max(0.2, Math.min(2.2, 0.85 / Math.max(bounds.width / fullWidth, bounds.height / fullHeight)));
+        const tx = fullWidth / 2 - scale * (bounds.x + bounds.width / 2);
+        const ty = fullHeight / 2 - scale * (bounds.y + bounds.height / 2);
+        svg.transition().duration(600).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+    }
+    function resetGraph() {
+        simulation.alpha(0.9).restart();
+        clearFocus();
+        selectedNodeId = null;
+        node.classed('selected', false).style('display', null).style('opacity', 1);
+        link.style('display', null).style('opacity', 1);
+        linkLabel.style('display', null).style('opacity', 1);
+        document.getElementById('search-input').value = '';
+        setTimeout(zoomToFit, 500);
+    }
+    function exportPNG() {
+        const serializer = new XMLSerializer();
+        const source = serializer.serializeToString(svg.node());
+        const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            canvas.width = window.innerWidth * 2;
+            canvas.height = window.innerHeight * 2;
+            const ctx = canvas.getContext('2d');
+            ctx.scale(2, 2);
+            ctx.fillStyle = '#0f0f1a';
+            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+            ctx.drawImage(img, 0, 0);
+            const a = document.createElement('a');
+            a.href = canvas.toDataURL('image/png');
+            a.download = 'code-graph.png';
+            a.click();
+            URL.revokeObjectURL(url);
+        };
+        img.src = url;
+    }
+    function dragstarted(event, d) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+    }
+    function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+    }
+    function dragended(event, d) {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+    }
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+    setTimeout(zoomToFit, 650);
+    window.addEventListener('resize', () => location.reload());
+</script>
+</body>
+</html>
