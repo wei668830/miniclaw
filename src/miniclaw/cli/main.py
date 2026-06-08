@@ -270,9 +270,7 @@ class CommandLineInteraction:
                 # 调试代码时使用
                 # user_input = input("miniclaw> ")
                 # 非高度代码时使用
-                user_input = await asyncio.get_event_loop().run_in_executor(
-                    None, self.prompt_session.prompt, "miniclaw> "
-                )
+                user_input = await self.prompt_session.prompt_async("miniclaw> ")
 
                 if not user_input.strip():
                     continue
