@@ -1,6 +1,6 @@
 [project]
 name = "miniclaw"
-version = "0.1.3"
+version = "0.1.4"
 description = "mini claw"
 authors = [
     {name = "ztcz",email = "contact@ztenith.com"}
