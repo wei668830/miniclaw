@@ -1,6 +1,10 @@
-from datetime import datetime
+import re
 import uuid
-from typing import Optional
+from datetime import datetime
+from pathlib import Path
+
+import yaml
+
 
 def clip(s: str, max_len: int = 30) -> str:
     """Clip a string to a maximum length, adding ellipsis if truncated."""
@@ -30,3 +34,24 @@ def dt_uuid(include_microseconds: bool = False) -> str:
     uuid_part = uuid.uuid4().hex[:7]
     return f"{timestamp}-{uuid_part}"
 
+
+def extract_yaml_frontmatter(content):
+    """提取 SKILL.md 文件开头的 YAML frontmatter"""
+    # 匹配 --- 开头和结尾的 YAML 内容
+    pattern = r'^---\s*\n(.*?)\n---\s*\n'
+    match = re.search(pattern, content, re.DOTALL | re.MULTILINE)
+    if match:
+        yaml_content = match.group(1)
+        try:
+            return yaml.safe_load(yaml_content)
+        except yaml.YAMLError:
+            return None
+    return None
+
+
+if __name__ == "__main__":
+    skills_dir = Path("~/.miniclaw/skills").expanduser().resolve()
+    src_skills_dir = Path(__file__).parent.parent / "agents" / "skills"
+    print(src_skills_dir)
+    # if not os.path.exists(skills_dir):
+    #     shutil.copytree(skills_dir, skills_dir, dirs_exist_ok=True)

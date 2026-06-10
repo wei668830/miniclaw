@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-import warnings
+import shutil
 from pathlib import Path
 
 from aioconsole import aprint
@@ -18,14 +18,14 @@ from ..agents import get_llm_client, llm_tools_manager
 from ..agents.base_llm_client import ToolResponse, TextBlock
 from ..agents.constant import LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER
 from ..constant import MINICLAW_LOG, EnvVarLoader
-from ..utils.common import clip, dt_uuid
+from ..utils.common import clip, dt_uuid, extract_yaml_frontmatter
 from ..utils.logger import setup_logger
 from ..utils.security import mask_password
 from ..utils.turn_taking import get_advance_messages
 
+
 # 抑制 asyncio 的资源警告
 # warnings.filterwarnings("ignore", category=ResourceWarning)
-
 
 
 class CommandLineInteraction:
@@ -48,9 +48,25 @@ class CommandLineInteraction:
         self.should_exit = False  # 增加退出标志
         # 非调试代码时使用，调试时请注释
         self.prompt_session = get_prompt_session(
-            ["/help", "/chat", "/agent", "/clear", "/memory", "/memory-list", "/quit"])
+            [
+                "/help",
+                "/agent",
+                "/chat",
+                "/clear",
+                "/history",
+                "/memory",
+                "/memory-list",
+                "/skill-list",
+                "/skill-load",
+                "/quit"
+            ]
+        )
 
         self.runtime_mode = "agent"  # 默认运行模式为代理机器人模式
+
+        self.skills = []  # 扫描的技能列表 (name,descriptions,dir)
+        self.skills_preload = []  # 预加载技能列表，加载后清空。 (name,descriptions,dir)
+        self.skills_loaded = []  # 已经加载的技能列表 (name,descriptions,dir)
 
         # 初始化
         setup_logger(enable_console=False)  # 日志初始化
@@ -78,13 +94,16 @@ class CommandLineInteraction:
         self.messages = [
             {
                 "role": "system",
-                "content": EnvVarLoader.get_str("CHAT_SYSTEM_PROMPT", """你是一个人工智能助手，协助用户完成各种任务。\n""")
+                "content": EnvVarLoader.get_str("CHAT_SYSTEM_PROMPT",
+                                                """你是一个人工智能助手，协助用户完成各种任务。\n""")
             },
             {
                 "role": "system",
                 "content": f"Do not stop this application process by invoking the shell command tool (execute_shell_command), PID: {os.getpid()}\n"
             }
         ]
+
+        self.skills_loaded.clear()
 
     async def _condense_memory(self):
         """处理记忆缓存"""
@@ -141,9 +160,12 @@ class CommandLineInteraction:
             table.add_row("/agent", "运行模式切换为代理模式", "/agent 代理模式下大模型将尽量自动推进任务执行")
             table.add_row("/chat", "运行模式切切换为对话模式", "/chat 对话模式下大模型将采用一问一答的方式")
             table.add_row("/clear", "清除对话上下文", "/clear")
+            table.add_row("/history", "历史对话记录", "/history N 最近N条历史对话记录，若不指定N默认看最后3条记录")
             table.add_row("/memory", "记忆缓存", "/memory 精简记忆  /memory <记忆缓存> 提取记忆")
             table.add_row("/memory-list", "记忆缓存列表",
                           "/memory-list 查看记忆缓存列表(默认最新的前10个记忆)\n/memory-list 20 查看最新的前20个记忆")
+            table.add_row("/skill-list", "可用的技能列表", "/skill-list 扫描 '~/code-agent/skills' 目录下的技能列表")
+            table.add_row("/skill-load", "加载技能", "/skill-load <skill-name>,... 同时加载多个技能以逗号分隔")
             table.add_row("/quit", "退出 MiniClaw", "/quit")
 
             console.print(table)
@@ -154,6 +176,17 @@ class CommandLineInteraction:
         elif command == "clear":
             self._init_messages()
             console.print(f"[green]✅ 清除对话上下文完成[/green]")
+        elif command == "history":
+            lookup_count = 3
+            if arg is not None:
+                try:
+                    lookup_count = int(arg)
+                except ValueError:
+                    pass
+
+            for m in self.messages[-1 * lookup_count:]:
+                print(json.dumps(m, ensure_ascii=False))
+
         elif command == "memory":
             if arg is None:  # 精简记忆
                 await self._condense_memory()
@@ -252,6 +285,66 @@ class CommandLineInteraction:
                     console.print("[red]❌ 无效的最大词元数，请输入一个正整数。[/red]")
             except ValueError:
                 console.print("[red]❌ 无效输入，请输入一个整数。[/red]")
+
+        elif command == "skill-list":
+            try:
+                skills_dir = Path(
+                    EnvVarLoader.get_str("MINICLAW_SKILLS_DIR", "~/.miniclaw/skills")).expanduser().resolve()
+                if not skills_dir.exists():
+                    src_skills_dir = Path(__file__).parent.parent / "agents" / "skills"
+                    shutil.copytree(src_skills_dir, skills_dir, dirs_exist_ok=True)
+
+                # 收集所有一级文件夹中的 SKILL.md
+                self.skills = []
+                for skill_dir in skills_dir.iterdir():
+                    if skill_dir.is_dir():
+                        skill_md = skill_dir / "SKILL.md"
+                        if skill_md.exists():
+                            with open(skill_md, 'r', encoding='utf-8') as f:
+                                content = f.read()
+
+                            frontmatter = extract_yaml_frontmatter(content)
+                            if frontmatter and frontmatter.get("name") is not None and frontmatter.get(
+                                    "description") is not None:
+                                name = frontmatter.get('name')
+                                description = frontmatter.get('description')
+                                self.skills.append((name, description, skill_dir))
+
+                # 打印结果
+                if not self.skills:
+                    console.print("[yellow]未发现技能[/yellow]")
+                    return
+
+                table = Table(
+                    title=f"技能列表({len(self.skills)})",
+                    style="cyan",
+                    padding=(0, 0, 1, 0)  # (上, 右, 下, 左) 行间距由上下padding控制
+                )
+                table.add_column("名称", style="green", no_wrap=True)
+                table.add_column("描述", style="white")
+                for idx, (name, description, dir_name) in enumerate(self.skills, start=1):
+                    table.add_row(name, description)
+                console.print(table)
+
+            except Exception as e:
+                console.print("[red]❌ 获取技能列表失败[/red]")
+
+        elif command == "skill-load":
+            if arg is None:
+                console.print(f"[yellow]请指定加载的技能名称，若需要加载多个使用逗号分隔[/yellow]")
+                return
+
+            try:
+                skill_names = arg
+                skills_dict = {name: (name, description, skill_dir) for name, description, skill_dir in self.skills}
+                skill_loaded_dict = {name: (name, description, skill_dir) for name, description, skill_dir in
+                                     self.skills_loaded}
+                for name in skill_names.split(","):
+                    if name in skills_dict and name not in skill_loaded_dict:  # 加载未加载的技能
+                        self.skills_preload.append(skills_dict[name])
+            except Exception as e:
+                console.print("[red]❌ 加载技能失败[/red]")
+
         elif command == "quit":
             self.should_exit = True  # 设置退出标志
             console.print("[bold green]检测到退出指令，再见！[/bold green]")
@@ -307,7 +400,29 @@ class CommandLineInteraction:
 
     async def stream(self, user_input: str):
         """处理用户输入并流��显示 LLM 响应"""
-        self.messages.append({"role": "user", "content": user_input})
+
+        if self.skills_preload is not None and len(self.skills_preload) > 0:
+            user_input_with_skills = user_input.strip()
+
+            for (name, description, skill_dir) in self.skills_preload:
+                if not skill_dir.exists():
+                    continue
+                skill_md = skill_dir / "SKILL.md"
+                if not skill_md.exists():
+                    continue
+
+                # 加载 SKILL.md 全文到用户输入中
+                with open(skill_md, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    user_input_with_skills += f"\n\n**【技能名称：{name}，技能文件夹路径：{str(skill_dir)}，技能指引如下】：**\n\n{content}\n\n"
+
+            # 清空预加载技能列表
+            self.skills_preload.clear()
+
+            self.messages.append({"role": "user", "content": user_input_with_skills})
+
+        else:
+            self.messages.append({"role": "user", "content": user_input})
 
         while True:
             try:
@@ -352,7 +467,6 @@ class CommandLineInteraction:
                                         ),
                                         refresh=True
                                     )
-
 
                         # 处理完成
                         if chunk.finish:
@@ -465,8 +579,8 @@ class CommandLineInteraction:
                                         "content": collected_content
                                     })
 
-                                logger.debug(f"大模型响应的消息：\n【content】:{collected_content}\n\n【reasoning_content:{collected_reasoning_content}】")
-
+                                logger.debug(
+                                    f"大模型响应的消息：\n【content】:{collected_content}\n\n【reasoning_content:{collected_reasoning_content}】")
 
                                 if self.runtime_mode == "agent":
                                     # 如果本轮结束的对话是大模型询问用户是否继续或者要求用户确认，让大模型通过上下文的内容自行判断是否可以推动对话继续进行，而不是直接结束对话流程

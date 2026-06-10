@@ -211,7 +211,7 @@ service_running.txt
 !libraries/**
 
 # 本项目特殊文件
-scripts/
+temp/
 
 # playwright
 browser/
