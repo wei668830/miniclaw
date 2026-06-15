@@ -17,8 +17,9 @@ from .console import console, get_prompt_session
 from ..agents import get_llm_client, llm_tools_manager
 from ..agents.base_llm_client import ToolResponse, TextBlock
 from ..agents.constant import LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER
+from ..agents.llm_configurator import LLMConfigurator
 from ..constant import MINICLAW_LOG, EnvVarLoader
-from ..utils.common import clip, dt_uuid, extract_yaml_frontmatter
+from ..utils.common import clip, dt_uuid, extract_yaml_frontmatter, masking_str
 from ..utils.logger import setup_logger
 from ..utils.security import mask_password
 from ..utils.turn_taking import get_advance_messages
@@ -35,12 +36,15 @@ class CommandLineInteraction:
             self,
             **kwargs
     ):
-        self.provider = os.getenv("LLM_CLIENT_PROVIDER", "litellm")
-        self.model = os.getenv("LLM_MODEL")
-        self.api_key = os.getenv("LLM_API_KEY")
-        self.base_url = os.getenv("LLM_BASE_URL")
-        self.temperature = float(os.getenv("LLM_TEMPERATURE", 1))
-        self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", 4096))
+        self.provider = EnvVarLoader.get_str("LLM_CLIENT_PROVIDER", "litellm")
+        # 分组加载 LLM 配置
+        self.llms = LLMConfigurator.load_llm_configs_by_group()
+        self.llm_name = "default"
+        default_llm = self.llms.get("default", {})
+        self.model = default_llm.get("model")
+        self.api_key = default_llm.get("api_key")
+        self.base_url = default_llm.get("base_url")
+        self.custom_llm_provider = default_llm.get("custom_llm_provider")
 
         self.client = get_llm_client()
         self.tools = llm_tools_manager.get_llm_tools()
@@ -50,6 +54,7 @@ class CommandLineInteraction:
         self.prompt_session = get_prompt_session(
             [
                 "/help",
+                "/llm",
                 "/agent",
                 "/chat",
                 "/clear",
@@ -107,7 +112,11 @@ class CommandLineInteraction:
 
     async def _condense_memory(self):
         """处理记忆缓存"""
-        memory = Memory(self.memory_file)
+        memory = Memory(self.memory_file,
+                        model=self.model,
+                        base_url=self.base_url,
+                        api_key=self.api_key,
+                        custom_llm_provider=self.custom_llm_provider)
         await memory.condense(self.messages)
 
     async def cleanup(self):
@@ -157,6 +166,8 @@ class CommandLineInteraction:
             table.add_column("示例", style="yellow")
 
             table.add_row("/help", "显示帮助信息", "/help")
+            table.add_row("/llm", "显示/切换/设置大模型",
+                          "/llm 显示大模型列表*号标记正在使用的大模型\n/llm use <model> 切换大模型\n/llm set <model>:<api_url>:<api_key>:[<custom_llm_provider>] 设置大模型")
             table.add_row("/agent", "运行模式切换为代理模式", "/agent 代理模式下大模型将尽量自动推进任务执行")
             table.add_row("/chat", "运行模式切切换为对话模式", "/chat 对话模式下大模型将采用一问一答的方式")
             table.add_row("/clear", "清除对话上下文", "/clear")
@@ -169,6 +180,57 @@ class CommandLineInteraction:
             table.add_row("/quit", "退出 MiniClaw", "/quit")
 
             console.print(table)
+        elif command == "llm":
+            if arg is None:
+                for key, cfg in self.llms.items():
+                    mark = "*" if key == self.llm_name else "-"
+                    console.print(
+                        f"{mark} {key}:{cfg.get('model')}:{cfg.get('base_url')}:{masking_str(cfg.get('api_key'))}:{cfg.get('custom_llm_provider')}"
+                    )
+                return
+
+            parts = arg.split()
+            subcmd = parts[0]
+            subarg = parts[1] if len(parts) > 1 else None
+
+            if subcmd == "use":
+                if subarg is None:
+                    console.print("[red]❌ 请指定模型名称[/red]")
+                    return
+
+                if subarg not in self.llms:
+                    console.print(f"[red]❌ 未找到 LLM: {subarg}[/red]")
+                    return
+
+                self.llm_name = subarg
+                cfg = self.llms[subarg]
+
+                self.model = cfg["model"]
+                self.base_url = cfg["base_url"]
+                self.api_key = cfg["api_key"]
+                self.custom_llm_provider = cfg.get("custom_llm_provider")
+
+                console.print(f"[green]✅ 已切换到 LLM: {subarg}[/green]")
+            elif subcmd == "set":
+                try:
+                    model, base_url, api_key, clp = subarg.split(":", 3)
+                    self.model = model
+                    self.base_url = base_url
+                    self.api_key = api_key
+                    self.custom_llm_provider = clp
+
+                    console.print(
+                        f"[green]✅ LLM 已设置为 {model}:{base_url}:{masking_str(api_key)}[/green]"
+                    )
+                except ValueError:
+                    console.print("[red]❌ 格式错误，应为 model:url:api_key[/red]")
+                    return
+
+
+            else:
+                console.print("[red]❌ 未知子命令[/red]")
+
+
         elif command == "chat":
             self.runtime_mode = "chat"
         elif command == "agent":
@@ -189,17 +251,24 @@ class CommandLineInteraction:
 
         elif command == "memory":
             if arg is None:  # 精简记忆
-                await self._condense_memory()
-                console.print(f"[green]✅ 精简记忆完成[/green]")
-            else:
-                _memory_file = os.path.join(self.memory_dir, arg)
-                if not os.path.exists(_memory_file):
-                    console.print(f"[red]错误：记忆文件 '{arg}' 不存在[/red]")
-                    return
-                else:
-                    console.print(f"[green]✅ 提取记忆完成[/green]")
+                try:
+                    await self._condense_memory()
+                    console.print(f"[green]✅ 精简记忆完成（memory file:{os.path.basename(self.memory_file)}）[/green]")
+                    self.update_memory = True
+                except Exception as e:
+                    console.print(f"[red]精简记忆错误：{str(e)}[/red]")
+                    logger.exception("精简记忆错误")
+                return
 
-            self.update_memory = True
+            _memory_file = os.path.join(self.memory_dir, arg)
+            if not os.path.exists(_memory_file):
+                console.print(f"[red]错误：记忆文件 '{arg}' 不存在[/red]")
+                return
+            else:
+                self.memory_file = _memory_file
+                console.print(f"[green]✅ 提取记忆完成[/green]")
+                self.update_memory = True
+
 
         elif command == "memory-list":
             try:
@@ -432,7 +501,12 @@ class CommandLineInteraction:
                 # 使用Live组件实现流式Markdown渲染
                 waiting_spinner = Spinner("dots", text="", style="bold blue")
                 with Live(waiting_spinner, console=console, auto_refresh=False, vertical_overflow="visible") as live:
-                    async for chunk in self.client.stream(messages=self.messages, tools=self.tools):
+                    async for chunk in self.client.stream(messages=self.messages,
+                                                          tools=self.tools,
+                                                          model=self.model,
+                                                          base_url=self.base_url,
+                                                          api_key=self.api_key,
+                                                          custom_llm_provider=self.custom_llm_provider):
                         if chunk.error:
                             console.print(f"[red]错误: {chunk.error}[/red]")
                             self.messages.append({
@@ -527,7 +601,10 @@ class CommandLineInteraction:
                                     # 调用计划制定工具
                                     try:
                                         from .planner import Planner
-                                        planner = Planner()
+                                        planner = Planner(model=self.model,
+                                                          base_url=self.base_url,
+                                                          api_key=self.api_key,
+                                                          custom_llm_provider=self.custom_llm_provider)
                                         tool_response = await planner.make(function_obj["arguments"])
                                         logger.debug(f"planner response: {tool_response.content}")
                                     except Exception as e:
@@ -586,6 +663,10 @@ class CommandLineInteraction:
                                     # 如果本轮结束的对话是大模型询问用户是否继续或者要求用户确认，让大模型通过上下文的内容自行判断是否可以推动对话继续进行，而不是直接结束对话流程
                                     chat_response_judgment = await self.client.chat(
                                         messages=get_advance_messages(self.messages),
+                                        model=self.model,
+                                        base_url=self.base_url,
+                                        api_key=self.api_key,
+                                        custom_llm_provider=self.custom_llm_provider
                                     )
 
                                     if chat_response_judgment.content.strip() == "继续":

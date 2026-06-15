@@ -8,14 +8,23 @@ from rich.spinner import Spinner
 
 from .console import console
 from ..agents.base_llm_client import ToolResponse, TextBlock
-from ..agents.constant import LLM_FUNCTION_SUBAGENT
+from ..agents.constant import LLM_FUNCTION_SUBAGENT,LLM_FUNCTION_PLANNER
 from ..constant import EnvVarLoader
 from ..utils.common import clip
 from ..utils.turn_taking import get_advance_messages, get_messages_without_tool_calls
 
 
 class Clerk:
-    def __init__(self, message: str, usage_type=None, layer:int=0):
+    def __init__(
+            self,
+            message: str,
+            usage_type=None,
+            layer: int = 0,
+            model: str = None,
+            base_url: str = None,
+            api_key: str = None,
+            custom_llm_provider: str = None,
+    ):
         """子任务执行器
         Args:
             message: 任务
@@ -27,6 +36,11 @@ class Clerk:
         from ..agents.llm_configurator import LLM_USAGE_MASTER
         self.llm_usage_type = usage_type if usage_type is not None else LLM_USAGE_MASTER
         self.layer = layer
+
+        self.model = model
+        self.base_url = base_url
+        self.api_key = api_key
+        self.custom_llm_provider = custom_llm_provider
 
         self.client = get_llm_client()
         self._llm_tools_manager = llm_tools_manager
@@ -47,7 +61,8 @@ class Clerk:
         ]
 
         logger.info(f"[clerk] 任务消息: {self.messages}")
-        console.print(Panel(Markdown(f"【子任务执行器接受任务】\n\n{message}"), title=f"AI-CLERK-RECEIVED (layer: {self.layer})"))
+        console.print(
+            Panel(Markdown(f"【子任务执行器接受任务】\n\n{message}"), title=f"AI-CLERK-RECEIVED (layer: {self.layer})"))
 
     async def run(self) -> str:
         await self._stream()
@@ -69,7 +84,11 @@ class Clerk:
                                f"\n【执行情况】：简要描述执行情况，突出重点，同时注意关键信息必须完整。"
                 }
             ],
-            llm_usage_type=self.llm_usage_type
+            llm_usage_type=self.llm_usage_type,
+            model=self.model,
+            base_url=self.base_url,
+            api_key=self.api_key,
+            custom_llm_provider=self.custom_llm_provider
         )
         logger.debug(f"【总结后】返回结果： {_llm_response}")
         return _llm_response.content
@@ -84,7 +103,12 @@ class Clerk:
                 # 使用Live组件实现流式Markdown渲染
                 waiting_spinner = Spinner("dots", text="", style="bold blue")
                 with Live(waiting_spinner, console=console, auto_refresh=False, vertical_overflow="visible") as live:
-                    async for chunk in self.client.stream(messages=self.messages, tools=self.tools):
+                    async for chunk in self.client.stream(messages=self.messages,
+                                                          tools=self.tools,
+                                                          model=self.model,
+                                                          base_url=self.base_url,
+                                                          api_key=self.api_key,
+                                                          custom_llm_provider=self.custom_llm_provider):
                         if chunk.error:
                             console.print(f"[red](layer:{self.layer}) 错误: {chunk.error}[/red]")
                             self.messages.append({
@@ -120,7 +144,6 @@ class Clerk:
                                         refresh=True
                                     )
 
-
                         # 处理完成
                         if chunk.finish:
                             if chunk.finish_reason == "tool_calls":
@@ -155,9 +178,14 @@ class Clerk:
                                     # 对cli_llm_agent工具的输入参数进行特殊处理，提取出message和llm_usage_type参数并传递给工具函数
                                     _tool_arguments_obj = json.loads(function_obj["arguments"])
                                     _clerk_message = _tool_arguments_obj["message"]
-                                    clerk = Clerk(_clerk_message, layer=self.layer+1)
+                                    clerk = Clerk(_clerk_message,
+                                                  layer=self.layer + 1,
+                                                  model=self.model,
+                                                  base_url=self.base_url,
+                                                  api_key=self.api_key,
+                                                  custom_llm_provider=self.custom_llm_provider)
                                     _clerk_response = await clerk.run()
-                                    logger.debug(f"clerk(layer:{self.layer+1}) response: {_clerk_response}")
+                                    logger.debug(f"clerk(layer:{self.layer + 1}) response: {_clerk_response}")
                                     tool_response = ToolResponse(
                                         content=[
                                             TextBlock(
@@ -166,6 +194,25 @@ class Clerk:
                                             )
                                         ]
                                     )
+                                elif function_obj["name"] == LLM_FUNCTION_PLANNER:
+                                    # 调用计划制定工具
+                                    try:
+                                        from .planner import Planner
+                                        planner = Planner(model=self.model,
+                                                          base_url=self.base_url,
+                                                          api_key=self.api_key,
+                                                          custom_llm_provider=self.custom_llm_provider)
+                                        tool_response = await planner.make(function_obj["arguments"])
+                                        logger.debug(f"planner response: {tool_response.content}")
+                                    except Exception as e:
+                                        tool_response = ToolResponse(
+                                            content=[
+                                                TextBlock(
+                                                    type="text",
+                                                    text=f"调用工具 {LLM_FUNCTION_PLANNER} 错误: {str(e)}",
+                                                )
+                                            ]
+                                        )
                                 else:
                                     tool_response = await self._llm_tools_manager.execute_tool(
                                         function_obj["name"],
@@ -212,6 +259,10 @@ class Clerk:
                                 # 如果本轮结束的对话是大模型询问用户是否继续或者要求用户确认，让大模型通过上下文的内容自行判断是否可以推动对话继续进行，而不是直接结束对话流程
                                 chat_response_judgment = await self.client.chat(
                                     messages=get_advance_messages(self.messages),
+                                    model=self.model,
+                                    base_url=self.base_url,
+                                    api_key=self.api_key,
+                                    custom_llm_provider=self.custom_llm_provider
                                 )
 
                                 if chat_response_judgment.content.strip() == "继续":

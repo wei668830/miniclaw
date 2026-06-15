@@ -8,8 +8,11 @@ from ..utils.common import dt_uuid
 
 
 class Planner(Actor):
-    def __init__(self):
-        super().__init__(exclude_tools=[LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER])
+    def __init__(self, **kwargs):
+        if "exclude_tools" not in kwargs:
+            kwargs["exclude_tools"] = [LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER]
+
+        super().__init__(**kwargs)
 
         self.path = Path.home() / ".miniclaw" / "plans" / f"plan-{dt_uuid()}.md"
         self.path = self.path.resolve()  # 转换为绝对路径

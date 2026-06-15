@@ -15,13 +15,16 @@ from ..utils.common import clip
 from ..utils.turn_taking import get_advance_messages, get_messages_without_tool_calls
 
 
-
 class Actor:
     def __init__(
             self,
             usage_type=None,
-            include_tools:List[str] = None,
-            exclude_tools:List[str] = None
+            include_tools: List[str] = None,
+            exclude_tools: List[str] = None,
+            model: str = None,
+            base_url: str = None,
+            api_key: str = None,
+            custom_llm_provider: str = None,
     ):
         # Import here to avoid circular import
         from ..agents import get_llm_client, llm_tools_manager
@@ -31,6 +34,11 @@ class Actor:
         self.client = get_llm_client()
         self.llm_tools_manager = llm_tools_manager
         self.tools = self.llm_tools_manager.get_llm_tools(include=include_tools, exclude=exclude_tools)
+
+        self.model = model
+        self.base_url = base_url
+        self.api_key = api_key
+        self.custom_llm_provider = custom_llm_provider
 
         self.messages = []
 
@@ -51,7 +59,12 @@ class Actor:
                 # 使用Live组件实现流式Markdown渲染
                 waiting_spinner = Spinner("dots", text="", style="bold blue")
                 with Live(waiting_spinner, console=console, auto_refresh=False, vertical_overflow="visible") as live:
-                    async for chunk in self.client.stream(messages=self.messages, tools=self.tools):
+                    async for chunk in self.client.stream(messages=self.messages,
+                                                          tools=self.tools,
+                                                          model=self.model,
+                                                          base_url=self.base_url,
+                                                          api_key=self.api_key,
+                                                          custom_llm_provider=self.custom_llm_provider):
                         if chunk.error:
                             console.print(f"[red]错误: {chunk.error}[/red]")
                             self.messages.append({
@@ -69,7 +82,7 @@ class Actor:
                                     live.update(
                                         Panel(
                                             Markdown(collected_content),
-                                            title="AI"
+                                            title=f"{self.__class__.__name__} AI"
                                         ),
                                         refresh=True
                                     )
@@ -80,13 +93,12 @@ class Actor:
                                     live.update(
                                         Panel(
                                             Markdown(collected_reasoning_content),
-                                            title="AI 思维链",
+                                            title=f"{self.__class__.__name__} AI 思维链",
                                             border_style="grey50",
                                             style="dim"
                                         ),
                                         refresh=True
                                     )
-
 
                         # 处理完成
                         if chunk.finish:
@@ -123,7 +135,13 @@ class Actor:
                                         _tool_arguments_obj = json.loads(function_obj["arguments"])
                                         _clerk_message = _tool_arguments_obj["message"]
                                         from .clerk import Clerk
-                                        clerk = Clerk(_clerk_message)
+                                        clerk = Clerk(
+                                            _clerk_message,
+                                            model=self.model,
+                                            base_url=self.base_url,
+                                            api_key=self.api_key,
+                                            custom_llm_provider=self.custom_llm_provider
+                                        )
                                         _clerk_response = await clerk.run()
                                         logger.debug(f"clerk response: {_clerk_response}")
                                         tool_response = ToolResponse(
@@ -147,7 +165,10 @@ class Actor:
                                     # 调用计划制定工具
                                     try:
                                         from .planner import Planner
-                                        planner = Planner()
+                                        planner = Planner(model=self.model,
+                                                          base_url=self.base_url,
+                                                          api_key=self.api_key,
+                                                          custom_llm_provider=self.custom_llm_provider)
                                         tool_response = await planner.make(function_obj["arguments"])
                                         logger.debug(f"planner response: {tool_response.content}")
                                     except Exception as e:
@@ -210,7 +231,6 @@ class Actor:
                 })
                 break
 
-
     async def _chat(self, requirements: str):
         """单轮对话，不使用工具，快速响应"""
         self.messages.append(
@@ -222,11 +242,19 @@ class Actor:
 
         chat_response = await self.client.chat(
             messages=get_advance_messages(self.messages),
+            model=self.model,
+            base_url=self.base_url,
+            api_key=self.api_key,
+            custom_llm_provider=self.custom_llm_provider
         )
+
+        content = chat_response.content.strip()
 
         self.messages.append(
             {
                 "role": "assistant",
-                "content": chat_response.content.strip()
+                "content": content
             }
         )
+
+        return content

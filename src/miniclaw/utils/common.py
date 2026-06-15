@@ -10,6 +10,37 @@ def clip(s: str, max_len: int = 30) -> str:
     """Clip a string to a maximum length, adding ellipsis if truncated."""
     return s if len(s) <= max_len else s[:max_len] + '...'
 
+def masking_str(
+    value: str,
+    *,
+    show_head: int = 7,
+    show_tail: int = 3,
+    mask_char: str = "*"
+) -> str:
+    """
+    对敏感字符串进行脱敏处理
+
+    :param value: 原始字符串（如密码、token）
+    :param show_head: 显示前 N 位
+    :param show_tail: 显示后 N 位
+    :param mask_char: 掩码字符
+    :return: 脱敏后的字符串
+    """
+    if not value:
+        return ""
+
+    length = len(value)
+
+    # 如果字符串太短，直接全掩码
+    if length <= show_head + show_tail:
+        return mask_char * min(length, 6)
+
+    head = value[:show_head]
+    tail = value[-show_tail:]
+    masked = mask_char * (length - show_head - show_tail)
+
+    return head + masked + tail
+
 
 
 
