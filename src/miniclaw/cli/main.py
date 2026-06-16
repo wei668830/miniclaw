@@ -455,7 +455,7 @@ class CommandLineInteraction:
 
                 # 指令处理
                 if user_input.startswith("/"):
-                    command = user_input[1:].strip().lower()
+                    command = user_input[1:].strip()
                     await self.command_handler(command)
                     if self.should_exit:
                         break

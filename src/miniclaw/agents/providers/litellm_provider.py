@@ -1,6 +1,7 @@
 from typing import AsyncIterator
 
-from litellm import acompletion, completion_cost
+import litellm
+from litellm import acompletion
 from loguru import logger
 
 from ..base_llm_client import BaseLLMClient, LLMResponse, LLMStreamChunk
@@ -9,9 +10,8 @@ from ..llm_configurator import (
     LLM_USAGE_MASTER,
 )
 
-
 # 关闭所有的调试信息输出
-# litellm.suppress_debug_info = True
+litellm.suppress_debug_info = True
 
 
 class LiteLLMClient(BaseLLMClient):
@@ -41,14 +41,13 @@ class LiteLLMClient(BaseLLMClient):
             **kwargs
     ) -> LLMResponse:
         try:
-            response = await acompletion(
-                **self._build_completion_kwargs(
-                    messages=messages,
-                    stream=False,
-                    llm_usage_type=llm_usage_type,
-                    **kwargs
-                )
+            params = self._build_completion_kwargs(
+                messages=messages,
+                stream=True,
+                llm_usage_type=llm_usage_type,
+                **kwargs
             )
+            response = await acompletion(**params)
 
             content = ""
             reasoning_content = ""
@@ -92,20 +91,18 @@ class LiteLLMClient(BaseLLMClient):
             **kwargs
     ) -> AsyncIterator[LLMStreamChunk]:
         try:
-            response = await acompletion(
-                **self._build_completion_kwargs(
+            params = self._build_completion_kwargs(
                     messages=messages,
                     stream=True,
                     llm_usage_type=llm_usage_type,
                     **kwargs
                 )
-            )
-
 
             tool_call_id = ""
             tool_name = ""
             tool_arguments = ""
 
+            response = await acompletion(**params)
             async for chunk in response:
                 # 默认增量类型为 content
                 delta_type = "content"
