@@ -167,7 +167,7 @@ class CommandLineInteraction:
 
             table.add_row("/help", "显示帮助信息", "/help")
             table.add_row("/llm", "显示/切换/设置大模型配置",
-                          "/llm 显示大模型列表*号标记正在使用的大模型配置\n/llm use <model> 切换大模型配置\n/llm set <model>:<api_url>:<api_key>[:<custom_llm_provider>] 设置默认大模型配置")
+                          "/llm 显示大模型列表*号标记正在使用的大模型配置\n/llm use <model> 切换大模型配置\n/llm set <model>:<api_url>:<api_key>[:<custom_llm_provider>] 设置临时大模型配置")
             table.add_row("/agent", "运行模式切换为代理模式", "/agent 代理模式下大模型将尽量自动推进任务执行")
             table.add_row("/chat", "运行模式切切换为对话模式", "/chat 对话模式下大模型将采用一问一答的方式")
             table.add_row("/clear", "清除对话上下文", "/clear")

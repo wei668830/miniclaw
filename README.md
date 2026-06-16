@@ -1,9 +1,5 @@
 # Mini Claw
-小搔！人工智能脚本手架工具！
-
-> 本工程借鉴 `CoPaw` 项目。
-
-
+大模型脚本手架工具
 
 ## 特性
 * 提供一个交互式的命令行界面，与大模型交互以完成各项工作。
@@ -12,6 +8,7 @@
 * 支持办事员模式处理主管交代的任务，并且可以在需要时请求主管提供更多信息。
 * 支持无限推进模式，允许大模型自行判断何时需要继续推进任务，直到任务完成。
 * 支持软件工程开发的各个环节，包括但不限于需求分析、设计、编码、测试(使用 playwright 进行B/S集成测试)、部署等。
+* 支持多个大模型配置，可以即时切换生效。
 
 ## 工具列表
 * 文件读写
@@ -59,6 +56,22 @@
   * LLM_MODEL=deepseek/deepseek-v4-flash
   * LLM_API_KEY=<your_api_key>
   * LLM_BASE_URL=https://api.deepseek.com
+  * CUSTOM_LLM_PROVIDER=openai # 若需要自定义调用大模型的供应商时填写该项，填写该项后 LLM_MODEL=deepseek-v4-flash 此时不需要在大模型名称处指定供应商
+* 多个大模型配置：在 `LLM_MODEL`, `LLM_API_KEY`, `LLM_BASE_URL`, `CUSTOM_LLM_PROVIDER` 属性前添加自定义前缀名称，切换时指定该名称。
+  * <CUSTOM_NAME>_LLM_MODEL=deepseek/deepseek-v4-flash
+  * <CUSTOM_NAME>_LLM_API_KEY=<your_api_key>
+  * <CUSTOM_NAME>_LLM_BASE_URL=https://api.deepseek.com
+  * <CUSTOM_NAME>_CUSTOM_LLM_PROVIDER=openai # 若需要自定义调用大模型的供应商时填写该项，填写该项后 LLM_MODEL=deepseek-v4-flash 此时不需要在大模型名称处指定供应商
+  * 使用方式：
+  ```bash
+  # 显示大模型配置列表
+  miniclaw> /llm
+  # 切换大模型配置（不分大小写）
+  miniclaw> /llm use <custom_name>
+  # 临时设置大模型配置，以冒号分隔，其中 `CUSTOM_LLM_PROVIDER` 为可选项
+  miniclaw> /llm set <LLM_MODEL>:<LLM_BASE_URL>:<LLM_API_KEY>[:<CUSTOM_LLM_PROVIDER>]
+  ```
+
 
 ### 运行方式
 **Windows 系统**
