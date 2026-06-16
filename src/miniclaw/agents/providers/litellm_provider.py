@@ -79,6 +79,7 @@ class LiteLLMClient(BaseLLMClient):
             )
 
         except Exception as e:
+            logger.exception(f"大模型非流式对话错误:{str(e)}")
             return LLMResponse(
                 content="",
                 error=str(e)
@@ -183,7 +184,7 @@ class LiteLLMClient(BaseLLMClient):
                         )
 
         except Exception as e:
-            logger.exception(f"流式chat错误")
+            logger.exception(f"大模型流式对话错误:{str(e)}")
             yield LLMStreamChunk(
                 delta="",
                 finish=True,

@@ -166,8 +166,8 @@ class CommandLineInteraction:
             table.add_column("示例", style="yellow")
 
             table.add_row("/help", "显示帮助信息", "/help")
-            table.add_row("/llm", "显示/切换/设置大模型",
-                          "/llm 显示大模型列表*号标记正在使用的大模型\n/llm use <model> 切换大模型\n/llm set <model>:<api_url>:<api_key>:[<custom_llm_provider>] 设置大模型")
+            table.add_row("/llm", "显示/切换/设置大模型配置",
+                          "/llm 显示大模型列表*号标记正在使用的大模型配置\n/llm use <model> 切换大模型配置\n/llm set <model>:<api_url>:<api_key>[:<custom_llm_provider>] 设置默认大模型配置")
             table.add_row("/agent", "运行模式切换为代理模式", "/agent 代理模式下大模型将尽量自动推进任务执行")
             table.add_row("/chat", "运行模式切切换为对话模式", "/chat 对话模式下大模型将采用一问一答的方式")
             table.add_row("/clear", "清除对话上下文", "/clear")
@@ -182,11 +182,19 @@ class CommandLineInteraction:
             console.print(table)
         elif command == "llm":
             if arg is None:
-                for key, cfg in self.llms.items():
-                    mark = "*" if key == self.llm_name else "-"
+                if self.llm_name not in self.llms:
                     console.print(
-                        f"{mark} {key}:{cfg.get('model')}:{cfg.get('base_url')}:{masking_str(cfg.get('api_key'))}:{cfg.get('custom_llm_provider')}"
+                        f"[green]* {self.llm_name}$$${self.model}$$${self.base_url}$$${masking_str(self.api_key)}$$${self.custom_llm_provider}[/green]"
                     )
+                for key, cfg in self.llms.items():
+                    if key == self.llm_name:
+                        console.print(
+                            f"[green]* {key}$$${cfg.get('model')}$$${cfg.get('base_url')}$$${masking_str(cfg.get('api_key'))}$$${cfg.get('custom_llm_provider')}[/green]"
+                        )
+                    else:
+                        console.print(
+                            f"[white]- {key}$$${cfg.get('model')}$$${cfg.get('base_url')}$$${masking_str(cfg.get('api_key'))}$$${cfg.get('custom_llm_provider')}[/white]"
+                        )
                 return
 
             parts = arg.split()
@@ -213,17 +221,18 @@ class CommandLineInteraction:
                 console.print(f"[green]✅ 已切换到 LLM: {subarg}[/green]")
             elif subcmd == "set":
                 try:
-                    model, base_url, api_key, clp = subarg.split(":", 3)
+                    model, base_url, api_key, clp = subarg.split("$$$", 3)
+                    self.llm_name = "temp"
                     self.model = model
                     self.base_url = base_url
                     self.api_key = api_key
                     self.custom_llm_provider = clp
 
                     console.print(
-                        f"[green]✅ LLM 已设置为 {model}:{base_url}:{masking_str(api_key)}[/green]"
+                        f"[green]✅ LLM 已设置为 {self.model}$$${self.base_url}$$${masking_str(self.api_key)}$$${self.custom_llm_provider}[/green]"
                     )
                 except ValueError:
-                    console.print("[red]❌ 格式错误，应为 model:url:api_key[/red]")
+                    console.print("[red]❌ 格式错误，应为 model$$$url$$$api_key[$$$custom_llm_provider][/red]")
                     return
 
 
@@ -314,11 +323,11 @@ class CommandLineInteraction:
             console.print(f"[green]✅ 模型已更新为: {self.model}[/green]")
         elif command == "api_key":
             if arg is None:
-                console.print(f"[green]当前模型 API_KEY: {mask_password(self.api_key)}[/green]")
+                console.print(f"[green]当前模型 API_KEY: {masking_str(self.api_key)}[/green]")
                 return
 
             self.api_key = arg
-            console.print(f"[green]✅ 模型 API_KEY 已更新为: {mask_password(self.api_key)}[/green]")
+            console.print(f"[green]✅ 模型 API_KEY 已更新为: {masking_str(self.api_key)}[/green]")
         elif command == "base_url":
             if arg is None:
                 console.print(f"[green]当前模型 URL: {self.base_url}[/green]")
@@ -326,6 +335,13 @@ class CommandLineInteraction:
 
             self.base_url = arg
             console.print(f"[green]✅ 模型 URL 已更新为: {self.base_url}[/green]")
+        elif command == "custom_llm_provider":
+            if arg is None:
+                console.print(f"[green]自定义大模型供应商: {self.custom_llm_provider}[/green]")
+                return
+
+            self.custom_llm_provider = arg
+            console.print(f"[green]✅ 自定义大模型供应商已更新为: {self.custom_llm_provider}[/green]")
         elif command == "temperature":
             if arg is None:
                 console.print(f"[green]温度值为: {self.temperature}[/green]")
