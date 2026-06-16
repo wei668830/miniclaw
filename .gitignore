@@ -215,3 +215,6 @@ temp/
 
 # playwright
 browser/
+
+# 运行时文件
+.miniclaw/
