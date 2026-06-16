@@ -577,7 +577,11 @@ class CommandLineInteraction:
                                         _tool_arguments_obj = json.loads(function_obj["arguments"])
                                         _clerk_message = _tool_arguments_obj["message"]
                                         from .clerk import Clerk
-                                        clerk = Clerk(_clerk_message)
+                                        clerk = Clerk(_clerk_message,
+                                                      model=self.model,
+                                                      base_url=self.base_url,
+                                                      api_key=self.api_key,
+                                                      custom_llm_provider=self.custom_llm_provider)
                                         _clerk_response = await clerk.run()
                                         logger.debug(f"clerk response: {_clerk_response}")
                                         tool_response = ToolResponse(
