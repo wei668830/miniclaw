@@ -148,6 +148,30 @@ class CommandLineInteraction:
         except Exception as e:
             logger.debug(f"清理资源时出错: {e}")
 
+
+    def _reload_skills(self):
+        skills_dir = Path(
+            EnvVarLoader.get_str("MINICLAW_SKILLS_DIR", "~/.miniclaw/skills")).expanduser().resolve()
+        if not skills_dir.exists():
+            src_skills_dir = Path(__file__).parent.parent / "agents" / "skills"
+            shutil.copytree(src_skills_dir, skills_dir, dirs_exist_ok=True)
+
+        # 收集所有一级文件夹中的 SKILL.md
+        self.skills.clear()
+        for skill_dir in skills_dir.iterdir():
+            if skill_dir.is_dir():
+                skill_md = skill_dir / "SKILL.md"
+                if skill_md.exists():
+                    with open(skill_md, 'r', encoding='utf-8') as f:
+                        content = f.read()
+
+                    frontmatter = extract_yaml_frontmatter(content)
+                    if frontmatter and frontmatter.get("name") is not None and frontmatter.get(
+                            "description") is not None:
+                        name = frontmatter.get('name')
+                        description = frontmatter.get('description')
+                        self.skills.append((name, description, skill_dir))
+
     async def command_handler(self, raw_command: str):
         """处理命令"""
         raw_command = raw_command.strip()
@@ -373,27 +397,7 @@ class CommandLineInteraction:
 
         elif command == "skill-list":
             try:
-                skills_dir = Path(
-                    EnvVarLoader.get_str("MINICLAW_SKILLS_DIR", "~/.miniclaw/skills")).expanduser().resolve()
-                if not skills_dir.exists():
-                    src_skills_dir = Path(__file__).parent.parent / "agents" / "skills"
-                    shutil.copytree(src_skills_dir, skills_dir, dirs_exist_ok=True)
-
-                # 收集所有一级文件夹中的 SKILL.md
-                self.skills = []
-                for skill_dir in skills_dir.iterdir():
-                    if skill_dir.is_dir():
-                        skill_md = skill_dir / "SKILL.md"
-                        if skill_md.exists():
-                            with open(skill_md, 'r', encoding='utf-8') as f:
-                                content = f.read()
-
-                            frontmatter = extract_yaml_frontmatter(content)
-                            if frontmatter and frontmatter.get("name") is not None and frontmatter.get(
-                                    "description") is not None:
-                                name = frontmatter.get('name')
-                                description = frontmatter.get('description')
-                                self.skills.append((name, description, skill_dir))
+                self._reload_skills()
 
                 # 打印结果
                 if not self.skills:
@@ -418,6 +422,8 @@ class CommandLineInteraction:
             if arg is None:
                 console.print(f"[yellow]请指定加载的技能名称，若需要加载多个使用逗号分隔[/yellow]")
                 return
+
+            self._reload_skills()
 
             try:
                 skill_names = arg
