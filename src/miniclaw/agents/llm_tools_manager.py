@@ -23,18 +23,15 @@ BUILTIN_TOOLS = {
                     "properties": {
                         "file_path": {
                             "type": "string",
-                            "description": "The path of a SINGLE file to read. Must be a single string (e.g., 'src/main.py'). DO NOT pass an array or comma-separated list of paths.",
-                            "minLength": 1
+                            "description": "The path of a SINGLE file to read. Must be a single string (e.g., 'src/main.py'). DO NOT pass an array or comma-separated list of paths."
                         },
                         "start_line": {
                             "type": "integer",
-                            "description": "The starting line number (1-based, inclusive).",
-                            "minimum": 1
+                            "description": "The starting line number (1-based, inclusive)."
                         },
                         "end_line": {
                             "type": "integer",
-                            "description": "The ending line number (1-based, inclusive).",
-                            "minimum": 1
+                            "description": "The ending line number (1-based, inclusive)."
                         }
                     },
                     "required": ["file_path"]
@@ -56,13 +53,11 @@ BUILTIN_TOOLS = {
                     "properties": {
                         "file_path": {
                             "type": "string",
-                            "description": "Path to the file. Relative paths resolve from WORKING_DIR.",
-                            "minLength": 1
+                            "description": "Path to the file. Relative paths resolve from WORKING_DIR."
                         },
                         "content": {
                             "type": "string",
-                            "description": "Content to write.",
-                            "minLength": 1
+                            "description": "Content to write."
                         },
                     },
                     "required": ["file_path", "content"]
@@ -85,18 +80,15 @@ BUILTIN_TOOLS = {
                     "properties": {
                         "file_path": {
                             "type": "string",
-                            "description": "Path to the file. Relative paths resolve from WORKING_DIR.",
-                            "minLength": 1
+                            "description": "Path to the file. Relative paths resolve from WORKING_DIR."
                         },
                         "old_text": {
                             "type": "string",
-                            "description": "Exact text to find.",
-                            "minLength": 1
+                            "description": "Exact text to find."
                         },
                         "new_text": {
                             "type": "string",
-                            "description": "Replacement text.",
-                            "minLength": 1
+                            "description": "Replacement text."
                         },
                     },
                     "required": ["file_path", "old_text", "new_text"]
@@ -118,13 +110,11 @@ BUILTIN_TOOLS = {
                     "properties": {
                         "file_path": {
                             "type": "string",
-                            "description": "Path to the file. Relative paths resolve from WORKING_DIR.",
-                            "minLength": 1
+                            "description": "Path to the file. Relative paths resolve from WORKING_DIR."
                         },
                         "content": {
                             "type": "string",
-                            "description": "Content to append.",
-                            "minLength": 1
+                            "description": "Content to append."
                         },
                     },
                     "required": ["file_path", "content"]
@@ -146,13 +136,11 @@ BUILTIN_TOOLS = {
                     "properties": {
                         "file_path": {
                             "type": "string",
-                            "description": "Path to the file. Relative paths resolve from WORKING_DIR.",
-                            "minLength": 1
+                            "description": "Path to the file. Relative paths resolve from WORKING_DIR."
                         },
                         "lines": {
                             "type": "integer",
-                            "description": "Number of lines to read from the end. Default: 100.",
-                            "minLength": 1
+                            "description": "Number of lines to read from the end. Default: 100."
                         },
                     },
                     "required": ["file_path"]
@@ -205,7 +193,7 @@ BUILTIN_TOOLS = {
                             "description": "The maximum time (in seconds) allowed for the command to run. Default is 60 seconds."
                         },
                         "cwd": {
-                            "type": "integer",
+                            "type": "string",
                             "description": "The working directory for the command execution. If None, defaults to WORKING_DIR."
                         },
                     },
@@ -725,9 +713,49 @@ class LLMToolsManager:
         import re
         return bool(re.search(r'\}\s*\{', stripped))
 
+    def _repair_json(self, arguments: str) -> Optional[str]:
+        """Attempt to repair common JSON malformation issues.
+
+        Currently handles:
+        - Missing closing braces or brackets (truncated JSON)
+        - Unbalanced quotes
+        """
+        s = arguments.strip()
+
+        # If odd number of quotes, remove trailing incomplete string
+        open_quotes = s.count('"')
+        if open_quotes % 2 != 0:
+            last_quote = s.rfind('"')
+            if last_quote > 0:
+                s = s[:last_quote]
+
+        # Count opening vs closing braces and brackets
+        open_braces = s.count(chr(123))  # {
+        close_braces = s.count(chr(125))  # }
+        open_brackets = s.count(chr(91))  # [
+        close_brackets = s.count(chr(93))  # ]
+
+        # Add missing closing braces
+        s += chr(125) * (open_braces - close_braces)
+        s += chr(93) * (open_brackets - close_brackets)
+
+        try:
+            json.loads(s)
+            return s
+        except json.JSONDecodeError:
+            return None
+
     async def execute_tool(self, key, arguments: Optional[str] = None) -> ToolResponse:
         try:
-            # Check if arguments contain multiple concatenated JSON objects (common LLM mistake)
+            if arguments is not None:
+                # First, try to parse the JSON normally
+                args = json.loads(arguments)
+                return await self.get_tool_func(key)(**args)
+
+            args = {}
+            return await self.get_tool_func(key)(**args)
+        except json.JSONDecodeError as e:
+            # Check if the failure is due to concatenated JSON objects
             if arguments is not None and self._detect_multiple_json_objects(arguments):
                 error_msg = (
                     f"Argument format error: detected multiple JSON objects concatenated together ({arguments}). "
@@ -743,8 +771,34 @@ class LLMToolsManager:
                     ]
                 )
 
-            args = {} if arguments is None else json.loads(arguments)
-            return await self.get_tool_func(key)(**args)
+            # General JSON parse error with details
+            error_msg = (
+                f"Error executing tool {key}: invalid JSON arguments. "
+                f"Received arguments: {arguments}. "
+                f"JSON parse error at line {e.lineno}, column {e.colno}: {e.msg}. "
+                f"Please check the arguments syntax and try again."
+            )
+            logger.warning(error_msg)
+
+            # Attempt to auto-repair common JSON truncation issues
+            if arguments is not None:
+                repaired = self._repair_json(arguments)
+                if repaired is not None:
+                    try:
+                        logger.info(f"Attempting to use repaired JSON: {repaired}")
+                        args = json.loads(repaired)
+                        return await self.get_tool_func(key)(**args)
+                    except Exception:
+                        pass
+
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=error_msg
+                    )
+                ]
+            )
         except Exception as e:
             logger.exception(f"Error executing tool {key} with arguments {arguments}")
             return ToolResponse(
