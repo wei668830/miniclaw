@@ -524,7 +524,7 @@ class CommandLineInteraction:
                 waiting_spinner = Spinner("dots", text="", style="bold blue")
                 with Live(waiting_spinner, console=console, auto_refresh=False, vertical_overflow="visible") as live:
                     async for chunk in self.client.stream(messages=self.messages,
-                                                          tools=self.tools,
+                                                          tools= self.tools if self.runtime_mode == "agent" else None,
                                                           model=self.model,
                                                           base_url=self.base_url,
                                                           api_key=self.api_key,
