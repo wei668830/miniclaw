@@ -218,3 +218,4 @@ browser/
 
 # 运行时文件
 .miniclaw/
+milvus_lite.db/
