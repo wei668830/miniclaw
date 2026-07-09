@@ -170,7 +170,7 @@ class Clerk:
                                 function_obj = tool_call_obj["function"]
 
                                 console.print(
-                                    f"\n[bold yellow](layer:{self.layer}) 🛠️ 工具调用: {function_obj['name']}({clip(function_obj['arguments'], max_len=100)})[/bold yellow]")
+                                    f"\n[bold yellow](layer:{self.layer}) 🛠️ 工具调用: {function_obj['name']}({clip(function_obj['arguments'], max_len=250)})[/bold yellow]")
                                 logger.debug(
                                     f"(layer:{self.layer}) 调用工具: {function_obj['name']}, 工具调用参数: {function_obj['arguments']}")
 

@@ -126,7 +126,7 @@ class Actor:
                                 function_obj = tool_call_obj["function"]
 
                                 console.print(
-                                    f"\n[bold yellow]🛠️ 工具调用: {function_obj['name']}({clip(function_obj['arguments'], max_len=100)})[/bold yellow]")
+                                    f"\n[bold yellow]🛠️ 工具调用: {function_obj['name']}({clip(function_obj['arguments'], max_len=250)})[/bold yellow]")
                                 logger.debug(
                                     f"调用工具 {function_obj['name']} 参数: {function_obj['arguments']}")
                                 if function_obj["name"] == LLM_FUNCTION_SUBAGENT:
