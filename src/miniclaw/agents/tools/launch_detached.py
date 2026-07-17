@@ -258,6 +258,11 @@ async def launch_detached(
     log_dir = os.path.dirname(log_file)
     if log_dir:
         os.makedirs(log_dir, exist_ok=True)
+    if os.path.exists(log_file):
+        try:
+            os.remove(log_file)
+        except Exception as e:
+            logger.warning(f"移除日志文件({log_file})失败: {str(e)}")
 
     # 合并环境变量
     env_dict = os.environ.copy()
