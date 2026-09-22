@@ -8,10 +8,16 @@ from rich.spinner import Spinner
 
 from .console import console
 from ..agents.base_llm_client import ToolResponse, TextBlock
-from ..agents.constant import LLM_FUNCTION_SUBAGENT,LLM_FUNCTION_PLANNER
-from ..constant import EnvVarLoader
+from ..agents.constant import LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER
+from ..constant import (
+    CLERK_AUTONOMY_PROMPT,
+    DEFAULT_MAX_SUBAGENT_LAYER,
+    DEFAULT_MAX_TOOL_ITERATIONS,
+    EnvVarLoader,
+)
 from ..utils.common import clip, merge_system_prompt_into_user
-from ..utils.turn_taking import get_advance_messages, get_messages_without_tool_calls
+from ..utils.context import shrink_tool_response
+from ..utils.turn_taking import get_messages_without_tool_calls
 
 # system 消息中放置过长的中文内容时，部分大模型网关会直接断开连接，
 # 因此 system 消息只保留简短指令，完整的系统提示词（CLERK_SYSTEM_PROMPT）合并到用户消息中。
@@ -44,6 +50,22 @@ class Clerk:
         self.llm_usage_type = usage_type if usage_type is not None else LLM_USAGE_MASTER
         self.layer = layer
 
+        # 子代理层级上限（安全网，防递归失控）：超过上限时不执行任务
+        self._layer_exceeded = False
+        _max_layer = EnvVarLoader.get_int(
+            "MINICLAW_MAX_SUBAGENT_LAYER", DEFAULT_MAX_SUBAGENT_LAYER
+        )
+        if self.layer > _max_layer:
+            self._layer_exceeded = True
+            logger.warning(
+                f"(layer:{self.layer}) 子代理层级超过上限 {_max_layer}，拒绝执行子任务"
+            )
+            console.print(
+                f"[red]❌ 子代理层级超过上限（layer={self.layer} > {_max_layer}），"
+                f"已拒绝执行该子任务[/red]"
+            )
+            return
+
         self.model = model
         self.base_url = base_url
         self.api_key = api_key
@@ -58,6 +80,13 @@ class Clerk:
             "CLERK_SYSTEM_PROMPT",
             "你是一个执行者，负责处理决策者下达的任务，并反馈处理的结果。"
         )
+        # 注入自主执行提示词，驱动子代理端到端自推进（方案 B：提示词驱动的自主执行）
+        _autonomy_prompt = EnvVarLoader.get_str(
+            "CHAT_CLERK_AUTONOMY_PROMPT", CLERK_AUTONOMY_PROMPT
+        )
+        if _autonomy_prompt:
+            _clerk_system_prompt = f"{_clerk_system_prompt}\n\n{_autonomy_prompt}"
+
         self.messages = [
             {
                 "role": "system",
@@ -74,6 +103,12 @@ class Clerk:
             Panel(Markdown(f"【子任务执行器接受任务】\n\n{message}"), title=f"AI-CLERK-RECEIVED (layer: {self.layer})"))
 
     async def run(self) -> str:
+        if self._layer_exceeded:
+            _msg = (
+                f"子代理层级超过上限（layer={self.layer}），未执行任务。"
+            )
+            logger.warning(f"[clerk] {_msg}")
+            return _msg
         await self._stream()
         logger.debug(f"流式对话完成，开始总结任务执行结果。会话内容: {self.messages}")
         _messages_without_tool_calls = get_messages_without_tool_calls(self.messages)
@@ -104,6 +139,8 @@ class Clerk:
 
     async def _stream(self):
         """处理用户输入并流式显示 LLM 响应"""
+        # 连续工具调用轮次计数（安全网，防死循环）
+        tool_iterations = 0
         while True:
             try:
                 # 每一轮请求都重新初始化内容收集器，确保流式渲染正确
@@ -229,16 +266,27 @@ class Clerk:
                                     )
 
                                 logger.debug(f"(layer:{self.layer}) 工具 {function_obj['name']} 响应: {tool_response}")
-                                # 继续对话流程
+                                # 继续对话流程（工具结果入上下文前裁剪超长输出，与 actor 一致）
                                 self.messages.append(
                                     {
                                         "role": "tool",
                                         "tool_call_id": tool_call_obj["id"],
                                         "name": function_obj["name"],
-                                        "content": tool_response.model_dump_json()
+                                        "content": shrink_tool_response(tool_response.model_dump_json(),
+                                                                        name=function_obj["name"])
                                     }
                                 )
                                 logger.debug(f"(layer:{self.layer}) 工具调用结果已添加到消息历史，继续对话...")
+
+                                # 连续工具调用轮次上限（安全网）
+                                tool_iterations += 1
+                                if tool_iterations > EnvVarLoader.get_int(
+                                        "MINICLAW_MAX_TOOL_ITERATIONS", DEFAULT_MAX_TOOL_ITERATIONS
+                                ):
+                                    console.print(
+                                        "[yellow]⚠️ 工具调用达到上限，已暂停，请检查任务是否陷入循环[/yellow]"
+                                    )
+                                    return None
                                 break
 
                             else:
@@ -265,27 +313,8 @@ class Clerk:
                                         "content": collected_content
                                     })
 
-                                # 如果本轮结束的对话是大模型询问用户是否继续或者要求用户确认，让大模型通过上下文的内容自行判断是否可以推动对话继续进行，而不是直接结束对话流程
-                                chat_response_judgment = await self.client.chat(
-                                    messages=get_advance_messages(self.messages),
-                                    model=self.model,
-                                    base_url=self.base_url,
-                                    api_key=self.api_key,
-                                    custom_llm_provider=self.custom_llm_provider
-                                )
-
-                                if chat_response_judgment.content.strip() == "继续":
-                                    console.print(
-                                        f"\n[yellow](layer:{self.layer}) 大模型判断可以继续推动对话进行，继续下一轮对话...[/yellow]")
-
-                                    self.messages.append({
-                                        "role": "user",
-                                        "content": "继续"
-                                    })
-
-                                    continue
-                                else:
-                                    return None
+                                # 方案 B：纯文本收尾即结束本轮（移除裁判续跑逻辑）
+                                return None
             except Exception as e:
                 logger.exception(f"(layer:{self.layer}) 流式处理发生错误")
                 console.print(f"[red](layer:{self.layer}) 发生错误: {e}[/red]")

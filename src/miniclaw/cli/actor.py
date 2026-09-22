@@ -12,7 +12,8 @@ from ..agents.base_llm_client import ToolResponse, TextBlock
 from ..agents.constant import LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER
 from ..constant import EnvVarLoader
 from ..utils.common import clip
-from ..utils.turn_taking import get_advance_messages, get_messages_without_tool_calls
+from ..utils.context import shrink_tool_response
+from ..utils.turn_taking import get_messages_without_tool_calls
 
 
 class Actor:
@@ -192,7 +193,7 @@ class Actor:
                                         "role": "tool",
                                         "tool_call_id": tool_call_obj["id"],
                                         "name": function_obj["name"],
-                                        "content": tool_response.model_dump_json()
+                                        "content": shrink_tool_response(tool_response.model_dump_json(), name=function_obj["name"])
                                     }
                                 )
                                 logger.debug(f"工具调用结果已添加到消息历史，继续对话")
@@ -241,7 +242,7 @@ class Actor:
         )
 
         chat_response = await self.client.chat(
-            messages=get_advance_messages(self.messages),
+            messages=self.messages,
             model=self.model,
             base_url=self.base_url,
             api_key=self.api_key,

@@ -14,15 +14,39 @@ from rich.table import Table
 
 from miniclaw.cli.memory import Memory
 from .console import console, get_prompt_session
+from .history_store import HistoryStore
+from .session_state import (
+    save_current_session,
+    load_current_session,
+    mark_clean_shutdown,
+    update_current_session,
+)
+from .state import load_active_plan
 from ..agents import get_llm_client, llm_tools_manager
 from ..agents.base_llm_client import ToolResponse, TextBlock
 from ..agents.constant import LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER
 from ..agents.llm_configurator import LLMConfigurator
-from ..constant import MINICLAW_LOG, EnvVarLoader
+from ..constant import (
+    MINICLAW_LOG,
+    AGENT_AUTONOMY_PROMPT,
+    DEFAULT_CONTEXT_RETRY_MAX,
+    DEFAULT_MAX_TOOL_ITERATIONS,
+    DEFAULT_MEMORY_KEEP_RECENT,
+    DEFAULT_MEMORY_RAW_DIR,
+    DEFAULT_TASK_DONE_TOKEN,
+    EnvVarLoader,
+)
 from ..utils.common import clip, dt_uuid, extract_yaml_frontmatter, masking_str, merge_system_prompt_into_user
+from ..utils.context import (
+    check_budget,
+    estimate_messages_tokens,
+    get_context_budget,
+    shrink_tool_response,
+    shrink_messages,
+)
 from ..utils.logger import setup_logger
 from ..utils.security import mask_password
-from ..utils.turn_taking import get_advance_messages
+from ..utils.turn_taking import get_last_n_messages
 
 
 # 抑制 asyncio 的资源警告
@@ -35,6 +59,25 @@ SHORT_SYSTEM_PROMPT = (
     "请严格遵守用户消息中【系统指令】部分的要求。"
 )
 DEFAULT_SYSTEM_PROMPT = "你是一个人工智能助手，协助用户完成各种任务。"
+
+# 上下文超限错误识别模式（小写匹配）
+CONTEXT_OVERFLOW_PATTERNS = (
+    "context length",
+    "maximum token",
+    "max_tokens",
+    "too long",
+    "context_length_exceeded",
+    "reduce the length",
+    "输入过长",
+)
+
+
+def _is_context_overflow_error(err: str) -> bool:
+    """判断错误信息是否属于「上下文超限」类错误。"""
+    if not err:
+        return False
+    low = err.lower()
+    return any(p.lower() in low for p in CONTEXT_OVERFLOW_PATTERNS)
 
 
 class CommandLineInteraction:
@@ -69,6 +112,11 @@ class CommandLineInteraction:
                 "/history",
                 "/memory",
                 "/memory-list",
+                "/context",
+                "/session-list",
+                "/session-load",
+                "/session-resume",
+                "/session-export",
                 "/skill-list",
                 "/skill-load",
                 "/quit"
@@ -90,14 +138,43 @@ class CommandLineInteraction:
             Path(EnvVarLoader.get_str("MINICLAW_MEMORY_DIR", "~/.miniclaw/memory")).expanduser().resolve())
         self.memory_file = os.path.join(self.memory_dir, memory_filename)
         os.makedirs(os.path.dirname(self.memory_file), exist_ok=True)
+
+        # 会话状态与外部记忆（JSONL）初始化
+        self.session_id = f"s{dt_uuid()}"
+        self.history_store = HistoryStore(self.session_id)
+        self.active_plan_path = load_active_plan()
+        self.context_condense_count = 0
+        self.pending_condense = None
+        self._last_summary = None
+        self._last_tail = []
+        self._user_input_appended = False
+
         # 显示欢迎信息
         console.print()
         console.print(MINICLAW_LOG)
         console.print("[bold]欢迎使用 MiniClaw！这是一个专注于智能体编排和工具管理的框架。[/bold]")
         console.print("大模型: [cyan]" + self.model + "[/cyan]")
         console.print("记忆缓存: [cyan]" + self.memory_file + "[/cyan]")
+        console.print("会话历史: [cyan]" + str(self.history_store.path) + "[/cyan]")
         console.print("运行模式: [cyan]" + self.runtime_mode + "[/cyan]")
         console.print("\n[italic]请使用 /help 查看指令，/quit 退出[/italic]\n")
+
+        # 登记当前会话元数据，并在上次会话异常退出时给出恢复提示
+        prev = load_current_session()
+        try:
+            save_current_session(
+                self.session_id,
+                str(self.history_store.path),
+                self.memory_file,
+                self.active_plan_path,
+            )
+        except Exception as e:
+            logger.debug(f"当前会话元数据写入失败: {e}")
+        if prev and prev.get("clean_shutdown") is False:
+            console.print(
+                f"[yellow]⚠️ 检测到上次会话未正常结束（session_id={prev.get('session_id')}），"
+                f"可使用 /session-list 查看、/session-resume <id> 恢复[/yellow]"
+            )
 
         # 大模型提示词
         self._init_messages()
@@ -124,20 +201,136 @@ class CommandLineInteraction:
 
         会话（或本轮上下文）中的首条用户消息里合并完整的系统提示词，
         system 消息只保留简短指令，以规避部分大模型网关对 system 消息长度的限制。
+        agent 模式下额外注入自主执行提示词，驱动模型端到端自推进。
         """
         if any(m.get("role") == "user" for m in self.messages):
             return user_input
 
-        return merge_system_prompt_into_user(self.system_prompt, user_input)
+        system_prompt = self.system_prompt
+        if self.runtime_mode == "agent":
+            autonomy_prompt = EnvVarLoader.get_str(
+                "CHAT_AGENT_AUTONOMY_PROMPT", AGENT_AUTONOMY_PROMPT
+            )
+            if autonomy_prompt:
+                system_prompt = f"{system_prompt}\n\n{autonomy_prompt}"
+
+        return merge_system_prompt_into_user(system_prompt, user_input)
+
+    def _append_message(self, message: dict):
+        """将消息追加到内存上下文，同时持久化到会话历史（外部记忆）"""
+        self.messages.append(message)
+        try:
+            self.history_store.append(message)
+        except Exception as e:
+            logger.debug(f"会话历史落盘失败: {e}")
+        return message
 
     async def _condense_memory(self):
-        """处理记忆缓存"""
+        """处理记忆缓存（带预算/分块，不打断任务）"""
         memory = Memory(self.memory_file,
                         model=self.model,
                         base_url=self.base_url,
                         api_key=self.api_key,
                         custom_llm_provider=self.custom_llm_provider)
-        await memory.condense(self.messages)
+        summary = await memory.condense(
+            self.messages,
+            token_budget=get_context_budget()[1],
+            session_id=self.session_id,
+            active_plan=self.active_plan_path,
+        )
+        self._last_summary = summary
+        self._last_tail = list(getattr(memory, "last_tail", []) or [])
+        return summary
+
+    async def _condense_and_rebuild(self, force: bool = False):
+        """精简记忆，并用「记忆摘要 + 活跃计划 + 最近轮次」重建上下文。
+
+        整体 try/except 兜底，不向上抛出异常，保证主流程可运行。
+        """
+        try:
+            memory = Memory(self.memory_file,
+                            model=self.model,
+                            base_url=self.base_url,
+                            api_key=self.api_key,
+                            custom_llm_provider=self.custom_llm_provider)
+            summary = await memory.condense(
+                self.messages,
+                token_budget=get_context_budget()[1],
+                session_id=self.session_id,
+                active_plan=self.active_plan_path,
+            )
+            self._last_summary = summary
+            tail = list(getattr(memory, "last_tail", []) or [])
+            self._last_tail = tail
+            await self._rebuild_messages_from_memory(summary=summary, tail=tail)
+        except Exception as e:
+            logger.exception("精简并重建上下文失败")
+            console.print(f"[red]精简并重建上下文失败: {e}[/red]")
+
+    async def _ensure_context(self, force: bool = False):
+        """LLM 调用前的上下文预算检查与自动精简。
+
+        - force 或 hard：精简记忆并重建上下文；
+        - soft：直接对当前消息做轻量裁剪以立即降低占用。
+        任一分支均不抛出异常。
+        """
+        try:
+            level, used, limit = check_budget(self.messages)
+            if force or level == "hard":
+                await self._condense_and_rebuild()
+                console.print(
+                    f"[yellow]⚠️ 上下文接近上限（{used}/{limit} tokens），"
+                    f"已自动精简记忆并重建上下文[/yellow]"
+                )
+            elif level == "soft":
+                keep_recent = EnvVarLoader.get_int(
+                    "MINICLAW_MEMORY_KEEP_RECENT", DEFAULT_MEMORY_KEEP_RECENT
+                )
+                self.messages = shrink_messages(self.messages, keep_recent)
+                console.print(
+                    f"[dim]上下文占用偏高（{used}/{limit} tokens），已裁剪较早的工具输出[/dim]"
+                )
+        except Exception as e:
+            logger.exception("上下文预算检查失败")
+
+    async def _rebuild_messages_from_memory(self, summary: str | None = None, tail: list | None = None):
+        """用「记忆摘要 + 活跃计划 + 最近 tail」重建上下文。"""
+        if summary is None:
+            _, summary = Memory.load(self.memory_file)
+        keep_recent = EnvVarLoader.get_int(
+            "MINICLAW_MEMORY_KEEP_RECENT", DEFAULT_MEMORY_KEEP_RECENT
+        )
+        if tail is None:
+            tail = get_last_n_messages(self.messages, keep_recent)
+
+        self._init_messages()
+
+        if self.active_plan_path:
+            plan_line = f"\n计划文件路径: {self.active_plan_path}"
+        else:
+            plan_line = "\n（无活跃计划文件）"
+        injected = (
+            f"【对话历史缓存】\n\n{summary}\n\n"
+            f"【活跃计划】{plan_line}\n\n"
+            f"【继续执行指令】\n"
+            f"请依据计划文件中标记为 [ ] 的未完成步骤继续执行，不要重复已完成步骤；"
+            f"如需细节请用 read_file 读取计划文件。"
+        )
+        self._append_message({
+            "role": "user",
+            "content": self._compose_user_content(injected),
+        })
+        self._append_message({
+            "role": "assistant",
+            "content": "收到，将继续执行未完成步骤。",
+        })
+        for m in (tail or []):
+            if isinstance(m, dict):
+                self._append_message(dict(m))
+        self._append_message({
+            "role": "system",
+            "content": "【上下文已重建】以上为精简后的记忆摘要与最近对话，请据此继续执行未完成任务。",
+        })
 
     async def cleanup(self):
         """清理资源"""
@@ -192,6 +385,183 @@ class CommandLineInteraction:
                         description = frontmatter.get('description')
                         self.skills.append((name, description, skill_dir))
 
+    def _history_raw_dir(self) -> Path:
+        return Path(
+            EnvVarLoader.get_str("MINICLAW_MEMORY_RAW_DIR", DEFAULT_MEMORY_RAW_DIR)
+        ).expanduser()
+
+    def _cmd_context(self, arg: str | None):
+        """处理 /context 命令。"""
+        if arg is not None and arg.strip() == "shrink":
+            before = estimate_messages_tokens(self.messages)
+            keep_recent = EnvVarLoader.get_int(
+                "MINICLAW_MEMORY_KEEP_RECENT", DEFAULT_MEMORY_KEEP_RECENT
+            )
+            self.messages = shrink_messages(self.messages, keep_recent)
+            after = estimate_messages_tokens(self.messages)
+            console.print(f"[green]✅ 已裁剪较早的工具输出：{before} → {after} tokens[/green]")
+            return
+
+        soft, hard, window = get_context_budget()
+        level, used, limit = check_budget(self.messages)
+        stats = self.history_store.stats()
+        table = Table(title="上下文状态", style="cyan")
+        table.add_column("项", style="green", no_wrap=True)
+        table.add_column("值", style="white")
+        table.add_row("估算 token", str(used))
+        table.add_row("预算 soft/hard/window", f"{soft} / {hard} / {window}")
+        table.add_row("预算等级", level)
+        table.add_row("消息条数", str(len(self.messages)))
+        table.add_row("会话 ID", self.session_id)
+        table.add_row("会话历史消息数", str(stats.get("messages")))
+        table.add_row("会话历史文件", str(stats.get("path")))
+        table.add_row("记忆文件", self.memory_file)
+        console.print(table)
+
+    def _cmd_session_list(self, arg: str | None):
+        """处理 /session-list [N] 命令。"""
+        last_count = 10
+        if arg is not None:
+            try:
+                last_count = int(arg)
+            except ValueError:
+                last_count = 10
+
+        raw_dir = self._history_raw_dir()
+        if not raw_dir.exists():
+            console.print(f"[yellow]暂无会话历史目录: {raw_dir}[/yellow]")
+            return
+
+        rows = []
+        for f in raw_dir.glob("*.jsonl"):
+            try:
+                stats = HistoryStore(f.stem, base_dir=str(raw_dir)).stats()
+                rows.append((f.stem, stats))
+            except Exception as e:
+                logger.debug(f"读取会话 {f.stem} 统计失败: {e}")
+        rows.sort(key=lambda x: x[1].get("updated_at") or "", reverse=True)
+        if last_count > 0:
+            rows = rows[:last_count]
+
+        table = Table(title=f"会话列表（{len(rows)}）", style="cyan")
+        table.add_column("会话 ID", style="green", no_wrap=True)
+        table.add_column("消息数", style="white")
+        table.add_column("更新时间", style="white")
+        table.add_column("摘要", style="dim")
+        for sid, stats in rows:
+            summary = ""
+            try:
+                msgs = HistoryStore(sid, base_dir=str(raw_dir)).load_all()
+                first_user = next(
+                    (m.get("content") for m in msgs if m.get("role") == "user"), ""
+                )
+                summary = clip(str(first_user or "").replace("\n", " "), 40)
+            except Exception:
+                summary = ""
+            mark = " *" if sid == self.session_id else ""
+            table.add_row(
+                f"{sid}{mark}",
+                str(stats.get("messages")),
+                str(stats.get("updated_at")),
+                summary,
+            )
+        console.print(table)
+
+    async def _cmd_session_load(self, session_id: str) -> bool:
+        """加载指定会话到内存上下文；不自动接续。成功返回 True。"""
+        raw_dir = self._history_raw_dir()
+        store = HistoryStore(session_id, base_dir=str(raw_dir))
+        if not store.path.exists():
+            console.print(f"[red]❌ 会话不存在: {session_id}[/red]")
+            return False
+        try:
+            msgs = store.load_all()
+        except Exception as e:
+            console.print(f"[red]❌ 会话读取失败（JSONL 可能损坏）: {e}[/red]")
+            return False
+        if not msgs:
+            console.print(f"[red]❌ 会话为空: {session_id}[/red]")
+            return False
+
+        self._init_messages()
+        self.session_id = session_id
+        self.history_store = store
+        for m in msgs:
+            if isinstance(m, dict):
+                self._append_message(dict(m))
+
+        # 恢复记忆文件（若该会话对应记忆文件存在则复用）与活跃计划
+        prev = load_current_session() or {}
+        prev_memory = prev.get("memory_file")
+        if prev_memory and os.path.exists(prev_memory):
+            self.memory_file = prev_memory
+        active_plan = load_active_plan()
+        if active_plan:
+            self.active_plan_path = active_plan
+
+        try:
+            update_current_session(
+                session_id=self.session_id,
+                history_path=str(store.path),
+                memory_file=self.memory_file,
+                active_plan=self.active_plan_path,
+            )
+        except Exception as e:
+            logger.debug(f"更新当前会话失败: {e}")
+
+        console.print(f"[green]✅ 已加载会话 {session_id}（{len(msgs)} 条消息）[/green]")
+        return True
+
+    def _cmd_session_export(self, session_id: str, out_path: str | None = None):
+        """导出指定会话为可读 Markdown。"""
+        raw_dir = self._history_raw_dir()
+        store = HistoryStore(session_id, base_dir=str(raw_dir))
+        if not store.path.exists():
+            console.print(f"[red]❌ 会话不存在: {session_id}[/red]")
+            return
+        try:
+            msgs = store.load_all()
+        except Exception as e:
+            console.print(f"[red]❌ 会话读取失败: {e}[/red]")
+            return
+
+        lines = [f"# 会话 {session_id}", ""]
+        for m in msgs:
+            if not isinstance(m, dict):
+                continue
+            role = m.get("role")
+            content = m.get("content")
+            if isinstance(content, list):
+                content = json.dumps(content, ensure_ascii=False)
+            if role == "user":
+                lines.append(f"## 用户\n\n{content}\n")
+            elif role == "assistant":
+                block = "" if content is None else str(content)
+                if m.get("tool_calls"):
+                    block += f"\n\n[工具调用] {json.dumps(m.get('tool_calls'), ensure_ascii=False)}"
+                lines.append(f"## AI\n\n{block}\n")
+            elif role == "tool":
+                lines.append(f"## 工具（{m.get('name')}）\n\n{content}\n")
+            elif role == "system":
+                lines.append(f"## 系统\n\n{content}\n")
+        markdown = "\n".join(lines)
+
+        if out_path:
+            target = Path(out_path).expanduser()
+        else:
+            export_dir = Path(
+                EnvVarLoader.get_str("MINICLAW_MEMORY_DIR", "~/.miniclaw/memory")
+            ).expanduser().resolve() / "export"
+            target = export_dir / f"{session_id}.md"
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(markdown)
+        except Exception as e:
+            console.print(f"[red]❌ 导出失败: {e}[/red]")
+            return
+        console.print(f"[green]✅ 会话已导出: {target}[/green]")
+
     async def command_handler(self, raw_command: str):
         """处理命令"""
         raw_command = raw_command.strip()
@@ -219,6 +589,13 @@ class CommandLineInteraction:
             table.add_row("/memory", "记忆缓存", "/memory 精简记忆  /memory <记忆缓存> 提取记忆")
             table.add_row("/memory-list", "记忆缓存列表",
                           "/memory-list 查看记忆缓存列表(默认最新的前10个记忆)\n/memory-list 20 查看最新的前20个记忆")
+            table.add_row("/context", "查看上下文 token 占用与阈值状态",
+                          "/context\n/context shrink 立即裁剪工具输出")
+            table.add_row("/session-list", "列出最近的会话",
+                          "/session-list N 查看最近N个会话（默认10，* 标记当前会话）")
+            table.add_row("/session-load", "加载指定会话到上下文（不自动接续）", "/session-load <session_id>")
+            table.add_row("/session-resume", "恢复并接续执行指定会话", "/session-resume <session_id>")
+            table.add_row("/session-export", "导出指定会话为 Markdown", "/session-export <session_id> [path]")
             table.add_row("/skill-list", "可用的技能列表", "/skill-list 扫描 '~/code-agent/skills' 目录下的技能列表")
             table.add_row("/skill-load", "加载技能", "/skill-load <skill-name>,... 同时加载多个技能以逗号分隔")
             table.add_row("/quit", "退出 MiniClaw", "/quit")
@@ -319,6 +696,9 @@ class CommandLineInteraction:
                 return
             else:
                 self.memory_file = _memory_file
+                _frontmatter, _body = Memory.load(_memory_file)
+                if not _frontmatter:
+                    console.print("[yellow]⚠️ 该记忆文件缺少可解析的 frontmatter，仍允许切换[/yellow]")
                 console.print(f"[green]✅ 提取记忆完成[/green]")
                 self.update_memory = True
 
@@ -357,6 +737,56 @@ class CommandLineInteraction:
                 console.print(f"[red]错误：没有权限访问文件夹 '{self.memory_dir}'[/red]")
             except Exception as e:
                 console.print(f"[red]错误：{str(e)}[/red]")
+
+        elif command == "context":
+            try:
+                self._cmd_context(arg)
+            except Exception as e:
+                console.print(f"[red]❌ 查看上下文状态失败: {e}[/red]")
+
+        elif command == "session-list":
+            try:
+                self._cmd_session_list(arg)
+            except Exception as e:
+                console.print(f"[red]❌ 会话列表读取失败: {e}[/red]")
+
+        elif command == "session-load":
+            if not arg:
+                console.print("[red]❌ 请指定 session_id[/red]")
+                return
+            try:
+                await self._cmd_session_load(arg.strip())
+            except Exception as e:
+                console.print(f"[red]❌ 加载会话失败: {e}[/red]")
+
+        elif command == "session-resume":
+            if not arg:
+                console.print("[red]❌ 请指定 session_id[/red]")
+                return
+            try:
+                ok = await self._cmd_session_load(arg.strip())
+                if not ok:
+                    return
+                await self._ensure_context(force=True)
+                self._append_message({
+                    "role": "user",
+                    "content": "【会话恢复】请读取活跃计划文件，从中断处继续执行标记为 [ ] 的未完成步骤。"
+                })
+                await self.stream("", append_user_message=False)
+            except Exception as e:
+                console.print(f"[red]❌ 会话恢复失败: {e}[/red]")
+
+        elif command == "session-export":
+            if not arg:
+                console.print("[red]❌ 请指定 session_id[/red]")
+                return
+            try:
+                _export_parts = arg.split()
+                _sid = _export_parts[0]
+                _out = _export_parts[1] if len(_export_parts) > 1 else None
+                self._cmd_session_export(_sid, _out)
+            except Exception as e:
+                console.print(f"[red]❌ 导出会话失败: {e}[/red]")
 
         elif command == "model":
             if arg is None:
@@ -458,6 +888,10 @@ class CommandLineInteraction:
 
         elif command == "quit":
             self.should_exit = True  # 设置退出标志
+            try:
+                mark_clean_shutdown(True)
+            except Exception:
+                pass
             console.print("[bold green]检测到退出指令，再见！[/bold green]")
             raise KeyboardInterrupt  # 触发 KeyboardInterrupt 来优雅退出
         else:
@@ -490,53 +924,74 @@ class CommandLineInteraction:
                 if not user_input.strip():
                     continue
 
-                # 若执行了精简记忆或者指定新的记忆缓存文件，则在下一轮用户输入时将记忆内容添加到用户输入的前面，供大模型参考
+                # 若执行了精简记忆或者指定新的记忆缓存文件，则在下一轮用户输入时重建上下文，
+                # 由大模型参考记忆摘要与活跃计划继续执行未完成步骤。
                 if self.update_memory:
-                    self._init_messages()
-                    with open(self.memory_file, "r", encoding="utf-8") as f:
-                        memory_content = f.read()
-                    user_input = f"【对话历史缓存】\n\n{memory_content}\n\n【用户最新输入】\n\n{user_input}"
+                    _, memory_content = Memory.load(self.memory_file)
+                    await self._rebuild_messages_from_memory(summary=memory_content)
+                    self._append_message({
+                        "role": "user",
+                        "content": f"【用户最新输入】\n\n{user_input}",
+                    })
+                    self._user_input_appended = True
                     self.update_memory = False
 
-                await self.stream(user_input)
+                append_user = not self._user_input_appended
+                self._user_input_appended = False
+                await self.stream(user_input, append_user_message=append_user)
 
             except KeyboardInterrupt:
+                try:
+                    mark_clean_shutdown(True)
+                except Exception:
+                    pass
                 await aprint("\n\n检测到中断信息，再见！")
                 break
             except EOFError:
+                try:
+                    mark_clean_shutdown(True)
+                except Exception:
+                    pass
                 await aprint("\n\n检测到结束信号，再见！")
                 break
             except Exception as e:
                 await aprint(f"\n\n发生错误: {e}")
 
-    async def stream(self, user_input: str):
-        """处理用户输入并流��显示 LLM 响应"""
+    async def stream(self, user_input: str, append_user_message: bool = True):
+        """处理用户输入并流式显示 LLM 响应"""
 
-        if self.skills_preload is not None and len(self.skills_preload) > 0:
-            user_input_with_skills = user_input.strip()
+        if append_user_message:
+            if self.skills_preload is not None and len(self.skills_preload) > 0:
+                user_input_with_skills = user_input.strip()
 
-            for (name, description, skill_dir) in self.skills_preload:
-                if not skill_dir.exists():
-                    continue
-                skill_md = skill_dir / "SKILL.md"
-                if not skill_md.exists():
-                    continue
+                for (name, description, skill_dir) in self.skills_preload:
+                    if not skill_dir.exists():
+                        continue
+                    skill_md = skill_dir / "SKILL.md"
+                    if not skill_md.exists():
+                        continue
 
-                # 加载 SKILL.md 全文到用户输入中
-                with open(skill_md, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    user_input_with_skills += f"\n\n**【技能名称：{name}，技能文件夹路径：{str(skill_dir)}，技能指引如下】：**\n\n{content}\n\n"
+                    # 加载 SKILL.md 全文到用户输入中
+                    with open(skill_md, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        user_input_with_skills += f"\n\n**【技能名称：{name}，技能文件夹路径：{str(skill_dir)}，技能指引如下】：**\n\n{content}\n\n"
 
-            # 清空预加载技能列表
-            self.skills_preload.clear()
+                # 清空预加载技能列表
+                self.skills_preload.clear()
 
-            self.messages.append({"role": "user", "content": self._compose_user_content(user_input_with_skills)})
+                self._append_message({"role": "user", "content": self._compose_user_content(user_input_with_skills)})
 
-        else:
-            self.messages.append({"role": "user", "content": self._compose_user_content(user_input)})
+            else:
+                self._append_message({"role": "user", "content": self._compose_user_content(user_input)})
+
+        # 连续工具调用轮次计数（安全网，防死循环）
+        tool_iterations = 0
 
         while True:
             try:
+                # 每轮 LLM 调用前做上下文预算检查与自动精简
+                await self._ensure_context()
+
                 # 每一轮请求都重新初始化内容收集器，确保流式渲染正确
                 collected_content = ""
                 collected_reasoning_content = ""
@@ -551,7 +1006,7 @@ class CommandLineInteraction:
                                                           custom_llm_provider=self.custom_llm_provider):
                         if chunk.error:
                             console.print(f"[red]错误: {chunk.error}[/red]")
-                            self.messages.append({
+                            self._append_message({
                                 "role": "assistant",
                                 "content": chunk.error
                             })
@@ -588,7 +1043,7 @@ class CommandLineInteraction:
                         if chunk.finish:
                             if chunk.finish_reason == "tool_calls":
                                 if len(collected_reasoning_content) > 0:
-                                    self.messages.append(
+                                    self._append_message(
                                         {
                                             "role": "assistant",
                                             "content": None,
@@ -597,7 +1052,7 @@ class CommandLineInteraction:
                                         }
                                     )
                                 else:
-                                    self.messages.append(
+                                    self._append_message(
                                         {
                                             "role": "assistant",
                                             "content": None,
@@ -653,6 +1108,7 @@ class CommandLineInteraction:
                                                           custom_llm_provider=self.custom_llm_provider)
                                         tool_response = await planner.make(function_obj["arguments"])
                                         logger.debug(f"planner response: {tool_response.content}")
+                                        self.active_plan_path = load_active_plan() or self.active_plan_path
                                     except Exception as e:
                                         tool_response = ToolResponse(
                                             content=[
@@ -668,16 +1124,27 @@ class CommandLineInteraction:
                                         function_obj["arguments"]
                                     )
                                 logger.debug(f"工具 {function_obj['name']} 响应: {tool_response}")
-                                # 继续对话流程
-                                self.messages.append(
+                                # 继续对话流程（工具结果入上下文前裁剪超长输出）
+                                self._append_message(
                                     {
                                         "role": "tool",
                                         "tool_call_id": tool_call_obj["id"],
                                         "name": function_obj["name"],
-                                        "content": tool_response.model_dump_json()
+                                        "content": shrink_tool_response(tool_response.model_dump_json(),
+                                                                        name=function_obj["name"])
                                     }
                                 )
                                 logger.debug(f"工具调用结果已添加到消息历史，继续对话")
+
+                                # 连续工具调用轮次上限（安全网）
+                                tool_iterations += 1
+                                if tool_iterations > EnvVarLoader.get_int(
+                                        "MINICLAW_MAX_TOOL_ITERATIONS", DEFAULT_MAX_TOOL_ITERATIONS
+                                ):
+                                    console.print(
+                                        "[yellow]⚠️ 工具调用达到上限，已暂停，请检查任务是否陷入循环[/yellow]"
+                                    )
+                                    return
                                 break
 
                             else:
@@ -689,50 +1156,61 @@ class CommandLineInteraction:
                                 # if chunk.cost_usd:
                                 #     console.print(f"[dim]💰 费用: ${chunk.cost_usd:.6f}[/dim]")
 
+                                # 可选哨兵：任务完成标记识别与剥离
+                                done_token = EnvVarLoader.get_str(
+                                    "CHAT_TASK_DONE_TOKEN", DEFAULT_TASK_DONE_TOKEN
+                                )
+                                final_content = collected_content
+                                if self.runtime_mode == "agent" and done_token and done_token in final_content:
+                                    console.print("[green]✅ 任务完成[/green]")
+                                    final_content = final_content.replace(done_token, "").strip()
+
                                 # 将助手响应添加到历史
                                 if len(collected_reasoning_content) > 0:
-                                    self.messages.append({
+                                    self._append_message({
                                         "role": "assistant",
-                                        "content": collected_content,
+                                        "content": final_content,
                                         "reasoning_content": collected_reasoning_content
                                     })
                                 else:
-                                    self.messages.append({
+                                    self._append_message({
                                         "role": "assistant",
-                                        "content": collected_content
+                                        "content": final_content
                                     })
 
                                 logger.debug(
-                                    f"大模型响应的消息：\n【content】:{collected_content}\n\n【reasoning_content:{collected_reasoning_content}】")
+                                    f"大模型响应的消息：\n【content】:{final_content}\n\n【reasoning_content:{collected_reasoning_content}】")
 
-                                if self.runtime_mode == "agent":
-                                    # 如果本轮结束的对话是大模型询问用户是否继续或者要求用户确认，让大模型通过上下文的内容自行判断是否可以推动对话继续进行，而不是直接结束对话流程
-                                    chat_response_judgment = await self.client.chat(
-                                        messages=get_advance_messages(self.messages),
-                                        model=self.model,
-                                        base_url=self.base_url,
-                                        api_key=self.api_key,
-                                        custom_llm_provider=self.custom_llm_provider
-                                    )
-
-                                    if chat_response_judgment.content.strip() == "继续":
-                                        console.print(
-                                            f"\n[yellow]大模型判断可以继续推动对话进行，继续下一轮对话...[/yellow]")
-
-                                        self.messages.append({
-                                            "role": "user",
-                                            "content": "继续"
-                                        })
-
-                                        continue
-                                    else:
-                                        return
-                                else:
-                                    return
+                                # 方案 B：纯文本收尾即结束本轮（移除裁判续跑逻辑）
+                                return
             except Exception as e:
+                if _is_context_overflow_error(str(e)):
+                    self.context_condense_count += 1
+                    retry_max = EnvVarLoader.get_int(
+                        "MINICLAW_CONTEXT_RETRY_MAX", DEFAULT_CONTEXT_RETRY_MAX
+                    )
+                    if self.context_condense_count <= retry_max:
+                        console.print(
+                            f"[yellow]⚠️ 检测到上下文超限，正在精简记忆并重建上下文后重试"
+                            f"（{self.context_condense_count}/{retry_max}）...[/yellow]"
+                        )
+                        await self._condense_and_rebuild(force=True)
+                        self._append_message({
+                            "role": "user",
+                            "content": "上一轮因上下文超限中断，请从中断处继续执行未完成任务。"
+                        })
+                        continue
+                    else:
+                        console.print("[red]上下文超限且重试失败，已停止本轮处理。[/red]")
+                        self._append_message({
+                            "role": "assistant",
+                            "content": f"发生错误: {str(e)}"
+                        })
+                        return
+
                 logger.exception(f"流式处理发生错误")
                 console.print(f"[red]发生错误: {e}[/red]")
-                self.messages.append({
+                self._append_message({
                     "role": "assistant",
                     "content": f"发生错误: {str(e)}"
                 })

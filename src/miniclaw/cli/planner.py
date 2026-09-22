@@ -1,18 +1,22 @@
+import re
 from pathlib import Path
 
 from .actor import Actor
+from . import state
 from ..agents import LLMResponse
 from ..agents.base_llm_client import ToolResponse, TextBlock
 from ..agents.constant import LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER
-from ..utils.common import dt_uuid
+from ..utils.common import dt_uuid, extract_yaml_frontmatter
 
 
 class Planner(Actor):
-    def __init__(self, **kwargs):
+    def __init__(self, session_id: str | None = None, **kwargs):
         if "exclude_tools" not in kwargs:
             kwargs["exclude_tools"] = [LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER]
 
         super().__init__(**kwargs)
+
+        self.session_id = session_id
 
         self.path = Path.home() / ".miniclaw" / "plans" / f"plan-{dt_uuid()}.md"
         self.path = self.path.resolve()  # 转换为绝对路径
@@ -42,6 +46,10 @@ class Planner(Actor):
                            "\n"
                            "\n## 计划的存储要求"
                            f"\n- 计划内容要求存储在指定文件，文件路径：{self.path}"
+                           "\n- 计划文件必须以 YAML frontmatter 开头，字段包括：type: plan、created_at、session_id、title、status: in_progress。"
+                           f"\n- frontmatter 中的 session_id 取值：{self.session_id}"
+                           "\n- 计划文件必须包含固定的「## 进度摘要」章节（3-6 行，说明当前处于第几步、最近一次执行结果、下一步要做什么），并在每次更新计划时同步刷新该章节。"
+                           "\n- 未完成步骤必须使用 [ ] 标注并保持顺序，便于恢复时按序继续执行。"
                            "\n"
                            "\n## 计划的输出要求"
                            "\n- 计划的首行为标题，指明是什么计划。"
@@ -56,15 +64,48 @@ class Planner(Actor):
             }
         )
 
+    @staticmethod
+    def _extract_progress_summary(content: str) -> str:
+        """提取计划文件中 `## 进度摘要` 章节正文（取不到返回空串）。"""
+        if not content:
+            return ""
+        match = re.search(r"##\s*进度摘要\s*\n(.*?)(?=\n##\s|\Z)", content, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return ""
+
     async def make(self, requirements: str) -> ToolResponse:
         await self._stream(requirements=requirements)
 
         if self.path.exists():
+            # 登记活跃计划（任务锚点），并回传进度摘要
+            title = None
+            summary = ""
+            try:
+                content = self.path.read_text(encoding="utf-8")
+                frontmatter = extract_yaml_frontmatter(content)
+                if isinstance(frontmatter, dict):
+                    title = frontmatter.get("title")
+                summary = self._extract_progress_summary(content)
+            except Exception:
+                title = None
+            if not title:
+                title = self.path.name
+
+            state.save_active_plan(
+                str(self.path),
+                session_id=self.session_id,
+                title=title,
+            )
+
+            text = f"计划文件已生成，文件路径: {self.path}"
+            if summary:
+                text = f"{text}\n进度摘要: {summary}"
             return ToolResponse(
                 content=[
                     TextBlock(
                         type="text",
-                        text=f"计划文件已生成，文件路径: {self.path}",
+                        text=text,
                     ),
                 ],
             )
@@ -89,3 +130,79 @@ class Planner(Actor):
                     )
                 ]
             )
+
+    async def resume(self, plan_path: str, instruction: str = None) -> ToolResponse:
+        """读取既有计划文件，注入计划全文与未完成步骤，驱动从中断处继续执行。"""
+        p = Path(plan_path)
+        if not p.exists():
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"计划文件不存在，无法恢复执行: {plan_path}",
+                    ),
+                ],
+            )
+
+        try:
+            content = p.read_text(encoding="utf-8")
+        except Exception as e:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"计划文件读取失败: {e}",
+                    ),
+                ],
+            )
+
+        pending = re.findall(r"^- \[ \]\s*(.+)$", content, re.MULTILINE)
+        if not pending:
+            return ToolResponse(
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"计划已全部完成，无需恢复: {plan_path}",
+                    ),
+                ],
+            )
+
+        default_instruction = (
+            "请依据计划文件与当前代码状态，从中断处继续执行未完成步骤；"
+            "执行前先读取计划文件确认最新进度，执行后更新计划文件的进度标记与「进度摘要」章节。"
+        )
+        resume_instruction = instruction or default_instruction
+        pending_list = "\n".join(f"- {s}" for s in pending)
+
+        requirements = (
+            "【任务恢复】\n"
+            f"计划文件路径: {plan_path}\n\n"
+            f"{content}\n\n"
+            "【未完成步骤】\n"
+            f"{pending_list}\n\n"
+            "【恢复指令】\n"
+            f"{resume_instruction}"
+        )
+
+        await self._stream(requirements=requirements)
+
+        # 刷新活跃计划登记（可能在执行后更新了计划文件）
+        state.save_active_plan(plan_path, session_id=self.session_id)
+
+        summary = ""
+        try:
+            summary = self._extract_progress_summary(p.read_text(encoding="utf-8"))
+        except Exception:
+            summary = ""
+
+        text = f"已恢复执行计划，文件路径: {plan_path}"
+        if summary:
+            text = f"{text}\n进度摘要: {summary}"
+        return ToolResponse(
+            content=[
+                TextBlock(
+                    type="text",
+                    text=text,
+                ),
+            ],
+        )

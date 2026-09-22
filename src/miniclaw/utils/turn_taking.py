@@ -41,7 +41,13 @@ def get_last_n_messages(messages: list, n: int = 3) -> list:
 
 
 def get_advance_messages(messages: list, n: int = 5) -> list:
-    """获取决策者判断是否继续执行的消息列表"""
+    """获取决策者判断是否继续执行的消息列表
+
+    .. deprecated::
+        该「裁判机制」已被弃用（改用提示词驱动的自主执行 + 常规工具循环）。
+        本函数仅为向后兼容保留，不再被主流程使用；相关环境变量
+        ``CHAT_ADVANCE_SYSTEM_PROMPT`` / ``CHAT_ADVANCE_USER_PROMPT`` 同样标记为 deprecated。
+    """
     _system_content = EnvVarLoader.get_str("CHAT_ADVANCE_SYSTEM_PROMPT",
                                            """你是一名决策者，根据会话的内容决定是继续执行下一步还是停止执行。""")
     _user_message = EnvVarLoader.get_str("CHAT_ADVANCE_USER_PROMPT", "结束")

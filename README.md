@@ -122,6 +122,79 @@ miniclaw> /help
 ```
 
 
+## 会话推进机制（agent 模式）
+* 会话推进采用**提示词驱动自主执行（agent 模式）**，不再使用裁判续跑逻辑。
+  * `agent` 模式下自动注入自主执行提示词，模型在还能通过工具取得进展时持续执行，仅在任务完成或确实被阻塞时停止。
+  * 安全网：单轮对话连续工具调用超过 `MINICLAW_MAX_TOOL_ITERATIONS`（默认 50）会暂停并提示；子代理嵌套层级超过 `MINICLAW_MAX_SUBAGENT_LAYER`（默认 5）会被拒绝执行。
+  * `chat` 模式仍为一问一答，不自主推进。
+  * `CHAT_ADVANCE_SYSTEM_PROMPT` / `CHAT_ADVANCE_USER_PROMPT` 已废弃（deprecated），保留仅为兼容。
+
+## 记忆（Memory）与上下文溢出恢复
+
+当整个会话上下文（`self.messages`）接近模型上下文窗口限度时，MiniClaw 会通过记忆机制自动精简并重建上下文，最大限度保证任务不中断。
+
+### 触发阈值
+* 软阈值：`MINICLAW_CONTEXT_WINDOW * MINICLAW_CONTEXT_SOFT_RATIO`（默认 128000 × 0.6），超过则对较早消息做轻量裁剪。
+* 硬阈值：`MINICLAW_CONTEXT_WINDOW * MINICLAW_CONTEXT_HARD_RATIO`（默认 128000 × 0.85，且不超过 `window - MINICLAW_CONTEXT_RESERVE_TOKENS`），超过则强制精简记忆并重建上下文。
+* 当 LLM 返回上下文超限错误时，会强制精简并重建后重试，最多 `MINICLAW_CONTEXT_RETRY_MAX`（默认 2）次。
+
+### 常用命令
+* `/memory`：立即精简当前上下文为结构化记忆，并在下一轮输入时重建上下文继续执行。
+* `/memory <file>`：切换记忆缓存文件（原有语义不变）。
+* `/memory-list`：列出记忆缓存文件（原有语义不变）。
+* `/context`：查看当前 token 估算占用、预算 soft/hard/window、消息条数与会话历史统计。
+* `/context shrink`：立即对当前上下文裁剪较早的工具输出（不调用 LLM）。
+
+### 记忆文件 frontmatter
+记忆文件以 YAML frontmatter 开头，字段包括：
+* `type`：固定为 `memory`。
+* `created_at`：生成时间。
+* `session_id`：所属会话 ID。
+* `message_range`：被精简的原消息索引范围 `[start, end]`。
+* `token_before` / `token_after`：精简前后 token 估算。
+* `chunk_count`：分块数量。
+* `active_plan`：活跃计划文件路径（若有）。
+* `keep_recent`：保留的最近轮次数。
+
+### 原始会话历史（外部记忆）
+* `~/.miniclaw/memory/raw/<session_id>.jsonl`：append-only 的单行 JSON 会话历史，与内存窗口解耦。
+* 任何时候都能从该文件还原完整原始历史（条数与内存一致），用于重新精简或人工核对。
+
+### 任务锚点与恢复流程
+* 复杂任务通过 `make_plans` 生成计划文件，计划文件包含 YAML frontmatter 与固定的「## 进度摘要」章节，未完成步骤以 `[ ]` 标注。
+* 活跃计划路径登记于 `~/.miniclaw/state/active_plan.json`，记忆精简时会保留该锚点。
+* 上下文重建后会自动注入「记忆摘要 + 活跃计划路径 + 继续执行指令 + 最近对话原文」，驱动模型从 `[ ]` 未完成步骤继续执行。
+
+### 会话元数据与异常退出恢复
+* `~/.miniclaw/state/current_session.json`：记录当前会话 ID、历史文件、记忆文件、活跃计划、`clean_shutdown` 等元数据。
+* 正常退出（`/quit`、`Ctrl-C`、EOF）会置 `clean_shutdown=true`；若上次为异常退出（`false`），启动时会给出恢复提示。
+* 会话恢复命令：
+  * `/session-list [N]`：列出最近 N 个会话（默认 10，`*` 标记当前会话）。
+  * `/session-load <session_id>`：加载指定会话到上下文（不自动接续）。
+  * `/session-resume <session_id>`：加载后自动精简并接续执行未完成步骤。
+  * `/session-export <session_id> [path]`：导出会话为可读 Markdown。
+
+### 可调环境变量
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `MINICLAW_CONTEXT_WINDOW` | `128000` | 模型上下文窗口 token 数（保守值） |
+| `MINICLAW_CONTEXT_SOFT_RATIO` | `0.6` | 软阈值比例，超过则自动精简 |
+| `MINICLAW_CONTEXT_HARD_RATIO` | `0.85` | 硬阈值比例，超过则强制精简 |
+| `MINICLAW_CONTEXT_RESERVE_TOKENS` | `4096` | 为模型回复预留的 token |
+| `MINICLAW_CONTEXT_DEBUG` | `false` | 是否打印预算判定调试日志 |
+| `MINICLAW_CONTEXT_RETRY_MAX` | `2` | 上下文超限后的最大重试次数 |
+| `MINICLAW_TOOL_OUTPUT_MAX_TOKENS` | `4000` | 单条工具结果超过则落盘裁剪 |
+| `MINICLAW_TOOL_OUTPUT_DIR` | `~/.miniclaw/multimodal/tool_outputs` | 工具输出全文落盘目录 |
+| `MINICLAW_MEMORY_RAW_DIR` | `~/.miniclaw/memory/raw` | JSONL 原始历史目录 |
+| `MINICLAW_MEMORY_KEEP_RECENT` | `6` | 精简时保留的最近轮次数（tail） |
+| `MINICLAW_MEMORY_CHUNK_TOKENS` | `20000` | 分块 map-reduce 的单块 token 上限 |
+| `MINICLAW_STATE_DIR` | `~/.miniclaw/state` | 会话状态目录 |
+| `CHAT_AGENT_AUTONOMY_PROMPT` | 内置默认文案 | agent 模式自主执行提示词 |
+| `CHAT_CLERK_AUTONOMY_PROMPT` | 内置默认文案 | 子代理自主执行提示词 |
+| `CHAT_TASK_DONE_TOKEN` | `【TASK_DONE】` | 任务完成哨兵标记 |
+| `MINICLAW_MAX_TOOL_ITERATIONS` | `50` | 单轮对话最大连续工具调用次数（安全网） |
+| `MINICLAW_MAX_SUBAGENT_LAYER` | `5` | 子代理最大嵌套层级 |
+
 ## 调试说明
 * 若需要在控制台运行时调试，请将下面的语句在待调试的地方拷贝
   * `import pdb; pdb.set_trace()`
