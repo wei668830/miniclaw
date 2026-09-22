@@ -80,6 +80,28 @@ def extract_yaml_frontmatter(content):
     return None
 
 
+def merge_system_prompt_into_user(system_prompt: str, user_input: str) -> str:
+    """将系统提示词合并到用户消息中
+
+    部分大模型网关对 system 消息的长度（尤其是中文字符数量）有限制，
+    一旦超出限制网关会直接断开连接（表现为 litellm 报告 Connection error）。
+    因此 system 消息只保留简短指令，完整的系统提示词合并到用户消息中。
+
+    Args:
+        system_prompt: 完整的系统提示词
+        user_input: 用户输入
+    Returns:
+        合并后的用户消息
+    """
+    if system_prompt is None or system_prompt.strip() == "":
+        return user_input
+
+    return (
+        f"【系统指令】\n\n{system_prompt.strip()}\n\n"
+        f"【用户最新输入】\n\n{user_input}"
+    )
+
+
 if __name__ == "__main__":
     skills_dir = Path("~/.miniclaw/skills").expanduser().resolve()
     src_skills_dir = Path(__file__).parent.parent / "agents" / "skills"

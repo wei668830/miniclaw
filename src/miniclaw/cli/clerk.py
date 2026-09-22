@@ -10,8 +10,15 @@ from .console import console
 from ..agents.base_llm_client import ToolResponse, TextBlock
 from ..agents.constant import LLM_FUNCTION_SUBAGENT,LLM_FUNCTION_PLANNER
 from ..constant import EnvVarLoader
-from ..utils.common import clip
+from ..utils.common import clip, merge_system_prompt_into_user
 from ..utils.turn_taking import get_advance_messages, get_messages_without_tool_calls
+
+# system 消息中放置过长的中文内容时，部分大模型网关会直接断开连接，
+# 因此 system 消息只保留简短指令，完整的系统提示词（CLERK_SYSTEM_PROMPT）合并到用户消息中。
+CLERK_SHORT_SYSTEM_PROMPT = (
+    "你是一个子任务执行者，负责处理决策者下达的任务，并简洁的回复执行结果成功或者失败，以及执行情况。"
+    "请严格遵守用户消息中【系统指令】部分的要求。"
+)
 
 
 class Clerk:
@@ -46,17 +53,19 @@ class Clerk:
         self._llm_tools_manager = llm_tools_manager
         self.tools = self._llm_tools_manager.get_llm_tools(exclude=[LLM_FUNCTION_SUBAGENT])
 
+        # 完整的系统提示词在首条用户消息中下发，避免部分网关对 system 消息长度的限制
+        _clerk_system_prompt = EnvVarLoader.get_str(
+            "CLERK_SYSTEM_PROMPT",
+            "你是一个执行者，负责处理决策者下达的任务，并反馈处理的结果。"
+        )
         self.messages = [
             {
                 "role": "system",
-                "content": EnvVarLoader.get_str(
-                    "CLERK_SYSTEM_PROMPT",
-                    "你是一个执行者，负责处理决策者下达的任务，并反馈处理的结果。"
-                )
+                "content": CLERK_SHORT_SYSTEM_PROMPT
             },
             {
                 "role": "user",
-                "content": message
+                "content": merge_system_prompt_into_user(_clerk_system_prompt, message)
             }
         ]
 

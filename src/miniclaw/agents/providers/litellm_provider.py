@@ -1,5 +1,6 @@
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
 
+import httpx
 import litellm
 from litellm import acompletion
 from loguru import logger
@@ -12,6 +13,58 @@ from ..llm_configurator import (
 
 # 关闭所有的调试信息输出
 litellm.suppress_debug_info = True
+
+
+def _root_cause(e: Exception) -> Optional[Exception]:
+    """获取异常链中最底层的异常（若不存在则返回 None）"""
+    current = e
+    seen = {id(e)}
+    while True:
+        nxt = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+        if nxt is None or id(nxt) in seen:
+            return None if current is e else current
+        seen.add(id(nxt))
+        current = nxt
+
+
+def _format_llm_error(e: Exception) -> str:
+    """将大模型请求异常转换为便于排查的错误信息
+
+    litellm 会把底层连接类异常统一包装为 “OpenAIException - Connection error.”，
+    直接抛出该信息容易误判为配置问题，因此这里补充底层异常与排查提示。
+    """
+    detail = " ".join(str(e).split())
+    message = f"{type(e).__name__}: {detail}"
+
+    root = _root_cause(e)
+    root_text = " ".join(str(root).split()) if root is not None else ""
+    root_name = type(root).__name__ if root is not None else ""
+    combined = f"{message} {root_text}"
+
+    hint = None
+    if root_name in ("ServerDisconnectedError", "IncompleteReadError") \
+            or isinstance(root, (httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError)) \
+            or "disconnected without sending a response" in combined \
+            or "Server disconnected" in combined \
+            or "Empty reply" in combined:
+        hint = ("服务端在返回响应前断开了连接，通常是模型网关对请求的限制（如 system 消息过长、超出上下文或内容策略）"
+                "或网关自身异常导致，请检查模型服务端")
+    elif root_name in ("ConnectionRefusedError", "ClientConnectorError", "ClientConnectorSSLError", "ConnectError") \
+            or isinstance(root, (httpx.ConnectError, httpx.ConnectTimeout)):
+        hint = "无法连接到模型服务，请检查 base_url、网络连通性、代理设置及模型服务是否已启动"
+    elif root_name in ("ConnectTimeoutError", "SocketTimeoutError", "ServerTimeoutError", "ReadTimeoutError") \
+            or isinstance(root, (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout)):
+        hint = "请求模型服务超时，模型服务响应过慢或不可用"
+    elif "Connection error" in combined or "Connection reset" in combined or "Connection refused" in combined:
+        hint = "模型服务连接异常（连接被拒绝或被中断），请检查 base_url 与模型服务状态"
+
+    if hint is not None:
+        message = f"{message} | 排查提示：{hint}"
+
+    if root_text != "" and root_text != detail:
+        message = f"{message} | 底层错误：{type(root).__name__}: {root_text}"
+
+    return message
 
 
 class LiteLLMClient(BaseLLMClient):
@@ -43,7 +96,7 @@ class LiteLLMClient(BaseLLMClient):
         try:
             params = self._build_completion_kwargs(
                 messages=messages,
-                stream=True,
+                stream=False,
                 llm_usage_type=llm_usage_type,
                 **kwargs
             )
@@ -51,10 +104,23 @@ class LiteLLMClient(BaseLLMClient):
 
             content = ""
             reasoning_content = ""
+            tool_calls = None
             if hasattr(response, "choices") and len(response.choices) > 0:
                 msg = response.choices[0].message
                 content = msg.content.strip() if hasattr(msg, "content") and msg.content else ""
-                reasoning_content = msg.content.strip() if hasattr(msg, "reasoning_content") and msg.reasoning_content else ""
+                reasoning_content = msg.reasoning_content.strip() if hasattr(msg, "reasoning_content") and msg.reasoning_content else ""
+                if hasattr(msg, "tool_calls") and msg.tool_calls is not None and len(msg.tool_calls) > 0:
+                    tool_calls = [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            }
+                        }
+                        for tc in msg.tool_calls
+                    ]
 
             # pt, ct, tt = None, None, None
             # if hasattr(response, "usage") and response.usage is not None:
@@ -71,6 +137,7 @@ class LiteLLMClient(BaseLLMClient):
             return LLMResponse(
                 content=content,
                 reasoning_content=reasoning_content,
+                tool_calls=tool_calls,
                 # prompt_tokens=pt,
                 # completion_tokens=ct,
                 # total_tokens=tt,
@@ -78,10 +145,11 @@ class LiteLLMClient(BaseLLMClient):
             )
 
         except Exception as e:
-            logger.exception(f"大模型非流式对话错误:{str(e)}")
+            error = _format_llm_error(e)
+            logger.exception(f"大模型非流式对话错误:{error}")
             return LLMResponse(
                 content="",
-                error=str(e)
+                error=error
             )
 
     async def stream(
@@ -181,9 +249,10 @@ class LiteLLMClient(BaseLLMClient):
                         )
 
         except Exception as e:
-            logger.exception(f"大模型流式对话错误:{str(e)}")
+            error = _format_llm_error(e)
+            logger.exception(f"大模型流式对话错误:{error}")
             yield LLMStreamChunk(
                 delta="",
                 finish=True,
-                error=str(e)
+                error=error
             )

@@ -19,7 +19,7 @@ from ..agents.base_llm_client import ToolResponse, TextBlock
 from ..agents.constant import LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER
 from ..agents.llm_configurator import LLMConfigurator
 from ..constant import MINICLAW_LOG, EnvVarLoader
-from ..utils.common import clip, dt_uuid, extract_yaml_frontmatter, masking_str
+from ..utils.common import clip, dt_uuid, extract_yaml_frontmatter, masking_str, merge_system_prompt_into_user
 from ..utils.logger import setup_logger
 from ..utils.security import mask_password
 from ..utils.turn_taking import get_advance_messages
@@ -27,6 +27,14 @@ from ..utils.turn_taking import get_advance_messages
 
 # 抑制 asyncio 的资源警告
 # warnings.filterwarnings("ignore", category=ResourceWarning)
+
+# system 消息中放置过长的中文内容时，部分大模型网关会直接断开连接，
+# 因此 system 消息只保留简短指令，完整的系统提示词（CHAT_SYSTEM_PROMPT）合并到用户消息中。
+SHORT_SYSTEM_PROMPT = (
+    "你是一个应用解决方案专家，协助用户从设计方案到实现产品。"
+    "请严格遵守用户消息中【系统指令】部分的要求。"
+)
+DEFAULT_SYSTEM_PROMPT = "你是一个人工智能助手，协助用户完成各种任务。"
 
 
 class CommandLineInteraction:
@@ -96,11 +104,12 @@ class CommandLineInteraction:
 
     def _init_messages(self):
         """实始化消息"""
+        # 完整的系统提示词在首条用户消息中下发，避免部分网关对 system 消息长度的限制
+        self.system_prompt = EnvVarLoader.get_str("CHAT_SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT)
         self.messages = [
             {
                 "role": "system",
-                "content": EnvVarLoader.get_str("CHAT_SYSTEM_PROMPT",
-                                                """你是一个人工智能助手，协助用户完成各种任务。\n""")
+                "content": SHORT_SYSTEM_PROMPT
             },
             {
                 "role": "system",
@@ -109,6 +118,17 @@ class CommandLineInteraction:
         ]
 
         self.skills_loaded.clear()
+
+    def _compose_user_content(self, user_input: str) -> str:
+        """构造用户消息内容
+
+        会话（或本轮上下文）中的首条用户消息里合并完整的系统提示词，
+        system 消息只保留简短指令，以规避部分大模型网关对 system 消息长度的限制。
+        """
+        if any(m.get("role") == "user" for m in self.messages):
+            return user_input
+
+        return merge_system_prompt_into_user(self.system_prompt, user_input)
 
     async def _condense_memory(self):
         """处理记忆缓存"""
@@ -510,10 +530,10 @@ class CommandLineInteraction:
             # 清空预加载技能列表
             self.skills_preload.clear()
 
-            self.messages.append({"role": "user", "content": user_input_with_skills})
+            self.messages.append({"role": "user", "content": self._compose_user_content(user_input_with_skills)})
 
         else:
-            self.messages.append({"role": "user", "content": user_input})
+            self.messages.append({"role": "user", "content": self._compose_user_content(user_input)})
 
         while True:
             try:
