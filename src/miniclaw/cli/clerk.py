@@ -2,6 +2,7 @@ import json
 
 from loguru import logger
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 
 from .console import console
@@ -177,7 +178,7 @@ class Clerk:
                 return None
             except Exception as e:
                 logger.exception(f"(layer:{self.layer}) 流式处理发生错误")
-                console.print(f"[red](layer:{self.layer}) 发生错误: {e}[/red]")
+                console.print(f"[red](layer:{self.layer}) 发生错误: {escape(str(e))}[/red]")
                 self.messages.append({
                     "role": "assistant",
                     "content": f"发生错误: {str(e)}"

@@ -1,6 +1,7 @@
 from typing import List
 
 from loguru import logger
+from rich.markup import escape
 
 from .console import console
 from .stream_runner import run_stream_round
@@ -67,7 +68,7 @@ class Actor:
 
             except Exception as e:
                 logger.exception(f"流式处理发生错误")
-                console.print(f"[red]发生错误: {e}[/red]")
+                console.print(f"[red]发生错误: {escape(str(e))}[/red]")
                 self.messages.append({
                     "role": "assistant",
                     "content": f"发生错误: {str(e)}"

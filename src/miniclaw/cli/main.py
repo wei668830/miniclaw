@@ -6,6 +6,7 @@ from pathlib import Path
 
 from aioconsole import aprint
 from loguru import logger
+from rich.markup import escape
 from rich.table import Table
 
 from miniclaw.cli.memory import Memory
@@ -138,10 +139,10 @@ class CommandLineInteraction:
         console.print()
         console.print(MINICLAW_LOG)
         console.print("[bold]欢迎使用 MiniClaw！这是一个专注于智能体编排和工具管理的框架。[/bold]")
-        console.print("大模型: [cyan]" + self.model + "[/cyan]")
-        console.print("记忆缓存: [cyan]" + self.memory_file + "[/cyan]")
-        console.print("会话历史: [cyan]" + str(self.history_store.path) + "[/cyan]")
-        console.print("运行模式: [cyan]" + self.runtime_mode + "[/cyan]")
+        console.print("大模型: [cyan]" + escape(str(self.model)) + "[/cyan]")
+        console.print("记忆缓存: [cyan]" + escape(str(self.memory_file)) + "[/cyan]")
+        console.print("会话历史: [cyan]" + escape(str(self.history_store.path)) + "[/cyan]")
+        console.print("运行模式: [cyan]" + escape(str(self.runtime_mode)) + "[/cyan]")
         console.print("\n[italic]请使用 /help 查看指令，/quit 退出[/italic]\n")
 
         # 登记当前会话元数据，并在上次会话异常退出时给出恢复提示
@@ -259,7 +260,7 @@ class CommandLineInteraction:
             await self._rebuild_messages_from_memory(summary=summary, tail=tail)
         except Exception as e:
             logger.exception("精简并重建上下文失败")
-            console.print(f"[red]精简并重建上下文失败: {e}[/red]")
+            console.print(f"[red]精简并重建上下文失败: {escape(str(e))}[/red]")
 
     async def _ensure_context(self, force: bool = False):
         """LLM 调用前的上下文预算检查与自动精简。
@@ -460,7 +461,7 @@ class CommandLineInteraction:
 
         raw_dir = self._history_raw_dir()
         if not raw_dir.exists():
-            console.print(f"[yellow]暂无会话历史目录: {raw_dir}[/yellow]")
+            console.print(f"[yellow]暂无会话历史目录: {escape(str(raw_dir))}[/yellow]")
             return
 
         rows = []
@@ -507,15 +508,15 @@ class CommandLineInteraction:
         raw_dir = self._history_raw_dir()
         store = HistoryStore(session_id, base_dir=str(raw_dir))
         if not store.path.exists():
-            console.print(f"[red]❌ 会话不存在: {session_id}[/red]")
+            console.print(f"[red]❌ 会话不存在: {escape(session_id)}[/red]")
             return False
         try:
             msgs = store.load_all()
         except Exception as e:
-            console.print(f"[red]❌ 会话读取失败（JSONL 可能损坏）: {e}[/red]")
+            console.print(f"[red]❌ 会话读取失败（JSONL 可能损坏）: {escape(str(e))}[/red]")
             return False
         if not msgs:
-            console.print(f"[red]❌ 会话为空: {session_id}[/red]")
+            console.print(f"[red]❌ 会话为空: {escape(session_id)}[/red]")
             return False
 
         self._init_messages()
@@ -544,7 +545,7 @@ class CommandLineInteraction:
             logger.debug(f"更新当前会话失败: {e}")
         self._register_session_meta()
 
-        console.print(f"[green]✅ 已加载会话 {session_id}（{len(msgs)} 条消息）[/green]")
+        console.print(f"[green]✅ 已加载会话 {escape(session_id)}（{len(msgs)} 条消息）[/green]")
         return True
 
     def _cmd_session_export(self, arg: str | None):
@@ -558,12 +559,12 @@ class CommandLineInteraction:
         raw_dir = self._history_raw_dir()
         store = HistoryStore(session_id, base_dir=str(raw_dir))
         if not store.path.exists():
-            console.print(f"[red]❌ 会话不存在: {session_id}[/red]")
+            console.print(f"[red]❌ 会话不存在: {escape(session_id)}[/red]")
             return
         try:
             msgs = store.load_all()
         except Exception as e:
-            console.print(f"[red]❌ 会话读取失败: {e}[/red]")
+            console.print(f"[red]❌ 会话读取失败: {escape(str(e))}[/red]")
             return
 
         lines = [f"# 会话 {session_id}", ""]
@@ -599,9 +600,9 @@ class CommandLineInteraction:
             with open(target, "w", encoding="utf-8") as f:
                 f.write(markdown)
         except Exception as e:
-            console.print(f"[red]❌ 导出失败: {e}[/red]")
+            console.print(f"[red]❌ 导出失败: {escape(str(e))}[/red]")
             return
-        console.print(f"[green]✅ 会话已导出: {target}[/green]")
+        console.print(f"[green]✅ 会话已导出: {escape(str(target))}[/green]")
 
     async def command_handler(self, raw_command: str):
         """处理斜杠命令（统一分发到 commands 注册表）。"""
@@ -620,13 +621,13 @@ class CommandLineInteraction:
         if arg is None:
             if self.llm_name not in self.llms:
                 console.print(
-                    f"[green]* {self.llm_name}$$${self.model}$$${self.base_url}$$${masking_str(self.api_key)}$$${self.custom_llm_provider}[/green]"
+                    f"[green]* {escape(str(self.llm_name))}$$${escape(str(self.model))}$$${escape(str(self.base_url))}$$${escape(masking_str(self.api_key))}$$${escape(str(self.custom_llm_provider))}[/green]"
                 )
             for key, cfg in self.llms.items():
                 color = "green" if key == self.llm_name else "white"
                 mark = "*" if key == self.llm_name else "-"
                 console.print(
-                    f"[{color}]{mark} {key}$$${cfg.get('model')}$$${cfg.get('base_url')}$$${masking_str(cfg.get('api_key'))}$$${cfg.get('custom_llm_provider')}[/{color}]"
+                    f"[{color}]{mark} {escape(str(key))}$$${escape(str(cfg.get('model')))}$$${escape(str(cfg.get('base_url')))}$$${escape(masking_str(cfg.get('api_key')))}$$${escape(str(cfg.get('custom_llm_provider')))}[/{color}]"
                 )
             return
 
@@ -639,7 +640,7 @@ class CommandLineInteraction:
                 console.print("[red]❌ 请指定模型名称[/red]")
                 return
             if subarg not in self.llms:
-                console.print(f"[red]❌ 未找到 LLM: {subarg}[/red]")
+                console.print(f"[red]❌ 未找到 LLM: {escape(str(subarg))}[/red]")
                 return
             self.llm_name = subarg
             cfg = self.llms[subarg]
@@ -647,12 +648,12 @@ class CommandLineInteraction:
             self.base_url = cfg["base_url"]
             self.api_key = cfg["api_key"]
             self.custom_llm_provider = cfg.get("custom_llm_provider")
-            console.print(f"[green]✅ 已切换到 LLM: {subarg}[/green]")
+            console.print(f"[green]✅ 已切换到 LLM: {escape(str(subarg))}[/green]")
         elif subcmd == "set":
             _fmt = "model$$$url$$$api_key[$$$custom_llm_provider]"
             seg = (subarg or "").split("$$$")
             if len(seg) < 3:
-                console.print(f"[red]❌ 格式错误，应为 {_fmt}[/red]")
+                console.print(f"[red]❌ 格式错误，应为 {escape(_fmt)}[/red]")
                 return
             self.llm_name = "temp"
             self.model = seg[0]
@@ -660,7 +661,7 @@ class CommandLineInteraction:
             self.api_key = seg[2]
             self.custom_llm_provider = seg[3] if len(seg) > 3 else None
             console.print(
-                f"[green]✅ LLM 已设置为 {self.model}$$${self.base_url}$$${masking_str(self.api_key)}$$${self.custom_llm_provider}[/green]"
+                f"[green]✅ LLM 已设置为 {escape(str(self.model))}$$${escape(str(self.base_url))}$$${escape(masking_str(self.api_key))}$$${escape(str(self.custom_llm_provider))}[/green]"
             )
         else:
             console.print("[red]❌ 未知子命令[/red]")
@@ -695,17 +696,17 @@ class CommandLineInteraction:
             try:
                 await self._condense_memory()
                 console.print(
-                    f"[green]✅ 精简记忆完成（memory file:{os.path.basename(self.memory_file)}）[/green]"
+                    f"[green]✅ 精简记忆完成（memory file:{escape(os.path.basename(self.memory_file))}）[/green]"
                 )
                 self.update_memory = True
             except Exception as e:
-                console.print(f"[red]精简记忆错误：{str(e)}[/red]")
+                console.print(f"[red]精简记忆错误：{escape(str(e))}[/red]")
                 logger.exception("精简记忆错误")
             return
 
         _memory_file = os.path.join(self.memory_dir, arg)
         if not os.path.exists(_memory_file):
-            console.print(f"[red]错误：记忆文件 '{arg}' 不存在[/red]")
+            console.print(f"[red]错误：记忆文件 '{escape(str(arg))}' 不存在[/red]")
             return
         self.memory_file = _memory_file
         _frontmatter, _body = Memory.load(_memory_file)
@@ -725,17 +726,17 @@ class CommandLineInteraction:
             files.sort(reverse=True)
             last_count = MEMORY_LIST_DEFAULT_COUNT if arg is None else int(arg)
             for _file_index, filename in enumerate(files[:last_count], start=1):
-                console.print(f"[green]{_file_index}. {filename}[/green]")
+                console.print(f"[green]{_file_index}. {escape(str(filename))}[/green]")
             # 记忆文件总量超过上限则自动清理最旧的部分
             if len(files) > MEMORY_FILE_MAX_COUNT:
                 for filename in files[MEMORY_FILE_MAX_COUNT:]:
                     os.remove(os.path.join(self.memory_dir, filename))
         except FileNotFoundError:
-            console.print(f"[red]错误：文件夹 '{self.memory_dir}' 不存在[/red]")
+            console.print(f"[red]错误：文件夹 '{escape(str(self.memory_dir))}' 不存在[/red]")
         except PermissionError:
-            console.print(f"[red]错误：没有权限访问文件夹 '{self.memory_dir}'[/red]")
+            console.print(f"[red]错误：没有权限访问文件夹 '{escape(str(self.memory_dir))}'[/red]")
         except Exception as e:
-            console.print(f"[red]错误：{str(e)}[/red]")
+            console.print(f"[red]错误：{escape(str(e))}[/red]")
 
     async def _cmd_session_resume(self, arg: str | None):
         """处理 /session-resume 命令：加载会话并接续执行。"""
@@ -753,7 +754,7 @@ class CommandLineInteraction:
             })
             await self.stream("", append_user_message=False)
         except Exception as e:
-            console.print(f"[red]❌ 会话恢复失败: {e}[/red]")
+            console.print(f"[red]❌ 会话恢复失败: {escape(str(e))}[/red]")
 
     def _cmd_skill_list(self, arg: str | None):
         """处理 /skill-list 命令。"""
@@ -774,7 +775,7 @@ class CommandLineInteraction:
                 table.add_row(name, description)
             console.print(table)
         except Exception as e:
-            console.print(f"[red]❌ 获取技能列表失败: {e}[/red]")
+            console.print(f"[red]❌ 获取技能列表失败: {escape(str(e))}[/red]")
 
     def _cmd_skill_load(self, arg: str | None):
         """处理 /skill-load 命令。"""
@@ -793,44 +794,44 @@ class CommandLineInteraction:
                 if name in skills_dict and name not in skill_loaded_dict:  # 加载未加载的技能
                     self.skills_preload.append(skills_dict[name])
         except Exception as e:
-            console.print(f"[red]❌ 加载技能失败: {e}[/red]")
+            console.print(f"[red]❌ 加载技能失败: {escape(str(e))}[/red]")
 
     def _cmd_model(self, arg: str | None):
         """处理 /model 命令。"""
         if arg is None:
-            console.print(f"[green]当前模型: {self.model}[/green]")
+            console.print(f"[green]当前模型: {escape(str(self.model))}[/green]")
             return
         self.model = arg
-        console.print(f"[green]✅ 模型已更新为: {self.model}[/green]")
+        console.print(f"[green]✅ 模型已更新为: {escape(str(self.model))}[/green]")
 
     def _cmd_api_key(self, arg: str | None):
         """处理 /api_key 命令。"""
         if arg is None:
-            console.print(f"[green]当前模型 API_KEY: {masking_str(self.api_key)}[/green]")
+            console.print(f"[green]当前模型 API_KEY: {escape(masking_str(self.api_key))}[/green]")
             return
         self.api_key = arg
-        console.print(f"[green]✅ 模型 API_KEY 已更新为: {masking_str(self.api_key)}[/green]")
+        console.print(f"[green]✅ 模型 API_KEY 已更新为: {escape(masking_str(self.api_key))}[/green]")
 
     def _cmd_base_url(self, arg: str | None):
         """处理 /base_url 命令。"""
         if arg is None:
-            console.print(f"[green]当前模型 URL: {self.base_url}[/green]")
+            console.print(f"[green]当前模型 URL: {escape(str(self.base_url))}[/green]")
             return
         self.base_url = arg
-        console.print(f"[green]✅ 模型 URL 已更新为: {self.base_url}[/green]")
+        console.print(f"[green]✅ 模型 URL 已更新为: {escape(str(self.base_url))}[/green]")
 
     def _cmd_custom_llm_provider(self, arg: str | None):
         """处理 /custom_llm_provider 命令。"""
         if arg is None:
-            console.print(f"[green]自定义大模型供应商: {self.custom_llm_provider}[/green]")
+            console.print(f"[green]自定义大模型供应商: {escape(str(self.custom_llm_provider))}[/green]")
             return
         self.custom_llm_provider = arg
-        console.print(f"[green]✅ 自定义大模型供应商已更新为: {self.custom_llm_provider}[/green]")
+        console.print(f"[green]✅ 自定义大模型供应商已更新为: {escape(str(self.custom_llm_provider))}[/green]")
 
     def _cmd_temperature(self, arg: str | None):
         """处理 /temperature 命令。"""
         if arg is None:
-            console.print(f"[green]温度值为: {self.temperature}[/green]")
+            console.print(f"[green]温度值为: {escape(str(self.temperature))}[/green]")
             return
         try:
             new_temp = float(arg)
@@ -839,14 +840,14 @@ class CommandLineInteraction:
             return
         if 0.0 <= new_temp <= 1.0:
             self.temperature = new_temp
-            console.print(f"[green]✅ 温度已更新为: {self.temperature}[/green]")
+            console.print(f"[green]✅ 温度已更新为: {escape(str(self.temperature))}[/green]")
         else:
             console.print("[red]❌ 无效的温度值，请输入 0.0 到 1.0 之间的数字。[/red]")
 
     def _cmd_max_token(self, arg: str | None):
         """处理 /max_token 命令。"""
         if arg is None:
-            console.print(f"[green]最大词元数为: {self.max_tokens}[/green]")
+            console.print(f"[green]最大词元数为: {escape(str(self.max_tokens))}[/green]")
             return
         try:
             new_max_tokens = int(arg)
@@ -855,7 +856,7 @@ class CommandLineInteraction:
             return
         if new_max_tokens > 0:
             self.max_tokens = new_max_tokens
-            console.print(f"[green]✅ 最大词元数已更新为: {self.max_tokens}[/green]")
+            console.print(f"[green]✅ 最大词元数已更新为: {escape(str(self.max_tokens))}[/green]")
         else:
             console.print("[red]❌ 无效的最大词元数，请输入一个正整数。[/red]")
 
@@ -1033,7 +1034,7 @@ class CommandLineInteraction:
                         return
 
                 logger.exception(f"流式处理发生错误")
-                console.print(f"[red]发生错误: {e}[/red]")
+                console.print(f"[red]发生错误: {escape(str(e))}[/red]")
                 self._append_message({
                     "role": "assistant",
                     "content": f"发生错误: {str(e)}"

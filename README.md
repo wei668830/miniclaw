@@ -194,6 +194,7 @@ miniclaw> /help
 | `CHAT_TASK_DONE_TOKEN` | `【TASK_DONE】` | 任务完成哨兵标记 |
 | `MINICLAW_MAX_TOOL_ITERATIONS` | `50` | 单轮对话最大连续工具调用次数（安全网） |
 | `MINICLAW_MAX_SUBAGENT_LAYER` | `5` | 子代理最大嵌套层级 |
+| `MINICLAW_KEEP_REASONING_CONTENT` | 自动识别 | 思维链回传开关：留空按模型自动识别（DeepSeek 保留、其余剥离）；`1/0` 强制保留/剥离 |
 
 ## 调试说明
 * 若需要在控制台运行时调试，请将下面的语句在待调试的地方拷贝

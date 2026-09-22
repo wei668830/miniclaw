@@ -103,9 +103,9 @@ DEFAULT_MEMORY_RAW_DIR = "~/.miniclaw/memory/raw"
 # 会话状态目录
 DEFAULT_STATE_DIR = "~/.miniclaw/state"
 # 单轮对话内工具调用的最大迭代次数
-DEFAULT_MAX_TOOL_ITERATIONS = 50
+DEFAULT_MAX_TOOL_ITERATIONS = 200
 # 子代理允许的最大嵌套层数
-DEFAULT_MAX_SUBAGENT_LAYER = 5
+DEFAULT_MAX_SUBAGENT_LAYER = 1
 # 任务完成标记 token（工具/子代理用于声明任务结束）
 DEFAULT_TASK_DONE_TOKEN = "【TASK_DONE】"
 
