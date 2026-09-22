@@ -127,7 +127,7 @@ miniclaw> /help
   * `agent` 模式下自动注入自主执行提示词，模型在还能通过工具取得进展时持续执行，仅在任务完成或确实被阻塞时停止。
   * 安全网：单轮对话连续工具调用超过 `MINICLAW_MAX_TOOL_ITERATIONS`（默认 50）会暂停并提示；子代理嵌套层级超过 `MINICLAW_MAX_SUBAGENT_LAYER`（默认 5）会被拒绝执行。
   * `chat` 模式仍为一问一答，不自主推进。
-  * `CHAT_ADVANCE_SYSTEM_PROMPT` / `CHAT_ADVANCE_USER_PROMPT` 已废弃（deprecated），保留仅为兼容。
+  * `CHAT_ADVANCE_SYSTEM_PROMPT` / `CHAT_ADVANCE_USER_PROMPT` 已废弃（deprecated），已从示例配置中移除，相关函数仅为兼容保留、不再使用。
 
 ## 记忆（Memory）与上下文溢出恢复
 

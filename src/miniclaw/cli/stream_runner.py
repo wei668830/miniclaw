@@ -22,7 +22,10 @@
 - 思维链（``reasoning_content``）仅在预览阶段用 ``Live`` 展示，切换到正文或结束时通过
   ``console.print`` 补一次落屏，保证退出后仍可在滚动历史中回溯；
 - 正文 ``Markdown`` 与思维链的 ``Live`` 预览均按增量阈值（``render_step``）节流，
-  避免逐 token 全量重渲染（O(n^2)）；流式结束时再显式落屏一次完整正文。
+  避免逐 token 全量重渲染（O(n^2)）；流式结束时再显式落屏一次完整正文；
+- ``Live`` 预览按「终端可视行数」而非逻辑行数裁剪（``_preview_text`` / ``_PREVIEW_MAX_ROWS``），
+  使预览区高度恒定且远小于终端视口，避免预览区高过屏幕导致 ``transient`` 清除时的
+  相对游标定位失效，从而把思维链预览残留在最终回复下方（表现为「思考内容在最后输出」）。
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional
 
 from loguru import logger
+from rich.cells import cell_len
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.markup import escape
@@ -239,6 +243,66 @@ def _strip_reasoning(msg: dict) -> dict:
     return msg
 
 
+# Live 预览区允许占用的最大可视行数（含换行折行）。
+#
+# ``Live`` 采用 ``transient=True``，退出时依赖 ``LiveRender.restore_cursor()`` 按
+# 「上一次渲染高度」上移并逐行清除预览区。该相对高度一旦接近/超过终端可视高度
+# （即预览区几乎占满整屏，渲染过程中控制台已发生滚动），游标就回不到预览区顶部，
+# 清除不彻底，会把最后一帧（通常是思维链预览）残留在最终回复下方——表现为
+# 「思考内容出现在最后」。
+#
+# 故预览必须按「终端可视行数」裁剪，并同时约束「逻辑行数」与「显示宽度（cell，
+# 兼容 CJK 宽字符）」：只要预览区高度恒定为若干行、远离整屏高度，清除就不会失配。
+# 最终完整内容仍由 ``console.print`` 全量落屏，不受影响。
+_PREVIEW_MAX_ROWS = 6
+
+
+def _tail_cells(text: str, max_cells: int) -> str:
+    """取字符串末尾、显示宽度不超过 ``max_cells`` 的部分（兼容 CJK 宽字符）。"""
+    if cell_len(text) <= max_cells:
+        return text
+    out: List[str] = []
+    used = 0
+    for ch in reversed(text):
+        w = cell_len(ch)
+        if used + w > max_cells:
+            break
+        out.append(ch)
+        used += w
+    return "".join(reversed(out))
+
+
+def _preview_text(text: str, max_rows: int = _PREVIEW_MAX_ROWS) -> str:
+    """把文本裁剪为高度受限的 ``Live`` 预览（不改动最终落屏的完整文本）。
+
+    只取末尾内容（最新进度），并按终端可视宽/高折算行数，保证换行折行后的高度
+    仍远小于终端视口——这是 ``transient`` 预览能被正确清除的前提。
+    """
+    if not text:
+        return ""
+    width = getattr(console, "width", None) or 80
+    height = getattr(console, "height", None) or 24
+    # 预留安全边距（标题/边框，以及每行最多折两行的余量）：预览总高 <= height - 6。
+    rows = max(1, min(max_rows, (height - 6) // 2))
+    cell_width = max(8, width - 4)
+    budget = cell_width * rows
+
+    kept: List[str] = []
+    used = 0
+    for line in reversed(text.splitlines()):
+        cost = cell_len(line)
+        if kept and (used + cost > budget or len(kept) >= rows):
+            break
+        kept.append(line)
+        used += cost
+    kept.reverse()
+    result = "\n".join(kept)
+    # 单行过长（无换行、整段推理）时保留其尾部，避免预览看不到最新内容。
+    if len(kept) <= 1 and cell_len(result) > budget:
+        result = _tail_cells(result, budget)
+    return result
+
+
 async def run_stream_round(
     *,
     client,
@@ -320,7 +384,7 @@ async def run_stream_round(
                         or "\n" in chunk.delta
                     ):
                         _flush_reasoning()
-                        live.update(Panel(Markdown(collected_content), title=title), refresh=True)
+                        live.update(Panel(Markdown(_preview_text(collected_content)), title=title), refresh=True)
                         last_rendered_len = len(collected_content)
                 elif chunk.delta_type == "reasoning_content":
                     collected_reasoning += chunk.delta
@@ -332,10 +396,11 @@ async def run_stream_round(
                             or "\n" in chunk.delta
                         )
                     ):
-                        # 思维链在切换正文前仅用于 Live 预览（按阈值节流）
+                        # 思维链在切换正文前仅用于 Live 预览（按阈值节流）；
+                        # 预览仅取末尾若干行，避免预览区高过终端视口（见 _PREVIEW_MAX_LINES）。
                         live.update(
                             Panel(
-                                Markdown(collected_reasoning),
+                                Markdown(_preview_text(collected_reasoning)),
                                 title=f"{title} 思维链",
                                 border_style="grey50",
                                 style="dim",
