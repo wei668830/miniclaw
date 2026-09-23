@@ -141,7 +141,7 @@ class CommandLineInteraction:
         # 显示欢迎信息
         console.print()
         console.print(MINICLAW_LOG)
-        console.print("[bold]欢迎使用 MiniClaw！这是一个专注于智能体编排和工具管理的框架。[/bold]")
+        console.print("[bold]欢迎使用 MiniClaw！念远既达[/bold]")
         console.print("大模型: [cyan]" + escape(str(self.model)) + "[/cyan]")
         console.print("记忆缓存: [cyan]" + escape(str(self.memory_file)) + "[/cyan]")
         console.print("会话历史: [cyan]" + escape(str(self.history_store.path)) + "[/cyan]")
