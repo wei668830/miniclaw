@@ -37,8 +37,11 @@ from ..constant import (
 from ..utils.common import clip, dt_uuid, extract_yaml_frontmatter, masking_str, merge_system_prompt_into_user
 from ..utils.context import (
     check_budget,
+    clear_budget_overrides,
     estimate_messages_tokens,
+    get_budget_overrides,
     get_context_budget,
+    set_budget_override,
     shrink_messages,
 )
 from ..utils.logger import setup_logger
@@ -423,8 +426,21 @@ class CommandLineInteraction:
         return None
 
     def _cmd_context(self, arg: str | None):
-        """处理 /context 命令。"""
-        if arg is not None and arg.strip() == "shrink":
+        """处理 /context 命令。
+
+        - 无参：展示当前上下文占用与阈值；
+        - ``shrink``：立即裁剪较早的工具输出；
+        - ``window|soft|hard|reserve <值>``：设置运行期预算覆盖（优先级高于 .env）；
+        - ``reset``：清除运行期覆盖，回退到 .env / 默认值。
+        """
+        parts = (arg or "").split()
+        if not parts:
+            self._print_context_status()
+            return
+
+        sub = parts[0].lower()
+
+        if sub == "shrink":
             before = estimate_messages_tokens(self.messages)
             keep_recent = EnvVarLoader.get_int(
                 "MINICLAW_MEMORY_KEEP_RECENT", DEFAULT_MEMORY_KEEP_RECENT
@@ -434,16 +450,92 @@ class CommandLineInteraction:
             console.print(f"[green]✅ 已裁剪较早的工具输出：{before} → {after} tokens[/green]")
             return
 
+        if sub == "reset":
+            clear_budget_overrides()
+            console.print("[green]✅ 已清除运行期预算覆盖，回退到 .env / 默认值[/green]")
+            self._print_context_status()
+            return
+
+        if sub in ("window", "soft", "hard", "reserve"):
+            self._apply_context_override(sub, parts[1:])
+            return
+
+        console.print(
+            "[red]❌ 未知子命令；用法：/context \\[shrink|reset|"
+            "window <n>|soft <ratio>|hard <ratio>|reserve <n>][/red]"
+        )
+
+    def _apply_context_override(self, sub: str, rest: list[str]):
+        """处理 /context window|soft|hard|reserve 的运行期覆盖。"""
+        if not rest:
+            console.print(f"[red]❌ 请提供数值，例如 /context {sub} <value>[/red]")
+            return
+        raw = rest[0]
+        key = {"window": "window", "soft": "soft_ratio",
+               "hard": "hard_ratio", "reserve": "reserve"}[sub]
+
+        if key in ("window", "reserve"):
+            try:
+                value = int(raw)
+            except ValueError:
+                console.print("[red]❌ 无效输入，请输入一个整数。[/red]")
+                return
+            if key == "window" and value <= 0:
+                console.print("[red]❌ window 必须为正整数。[/red]")
+                return
+            if key == "reserve" and value < 0:
+                console.print("[red]❌ reserve 不能为负数。[/red]")
+                return
+        else:
+            try:
+                value = float(raw)
+            except ValueError:
+                console.print("[red]❌ 无效输入，请输入一个 0~1 之间的小数。[/red]")
+                return
+            if not (0.0 < value < 1.0):
+                console.print("[red]❌ 比例需在 0.0 与 1.0 之间（不含端点）。[/red]")
+                return
+            soft_now, hard_now, window_now = get_context_budget()
+            if window_now > 0:
+                soft_eff = soft_now / window_now
+                hard_eff = hard_now / window_now
+                if key == "soft_ratio" and value >= hard_eff:
+                    console.print("[red]❌ soft 比例需小于当前 hard 比例。[/red]")
+                    return
+                if key == "hard_ratio" and value <= soft_eff:
+                    console.print("[red]❌ hard 比例需大于当前 soft 比例。[/red]")
+                    return
+
+        set_budget_override(key, value)
+        soft, hard, window = get_context_budget()
+        console.print(
+            f"[green]✅ 已设置运行期预算 {sub}={value}（仅当前进程生效，"
+            f"如需持久化请写入 .env 对应环境变量）[/green]"
+        )
+        console.print(f"[dim]当前预算 soft/hard/window = {soft} / {hard} / {window}[/dim]")
+
+    def _print_context_status(self):
+        """打印上下文状态表格。"""
         soft, hard, window = get_context_budget()
         level, used, limit = check_budget(self.messages)
         stats = self.history_store.stats()
+        overrides = get_budget_overrides()
         table = Table(title="上下文状态", style="cyan")
         table.add_column("项", style="green", no_wrap=True)
         table.add_column("值", style="white")
         table.add_row("估算 token", str(used))
         table.add_row("预算 soft/hard/window", f"{soft} / {hard} / {window}")
+        table.add_row(
+            "有效比例 soft/hard",
+            f"{soft / window:.3f} / {hard / window:.3f}" if window else "-",
+        )
         table.add_row("预算等级", level)
         table.add_row("消息条数", str(len(self.messages)))
+        table.add_row(
+            "运行期覆盖",
+            ", ".join(f"{k}={v:g}" for k, v in overrides.items())
+            if overrides else "（无，使用 .env/默认）",
+        )
         table.add_row("会话 ID", self.session_id)
         table.add_row("会话历史消息数", str(stats.get("messages")))
         table.add_row("会话历史文件", str(stats.get("path")))

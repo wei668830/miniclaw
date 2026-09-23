@@ -73,7 +73,13 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec(
         "context", "查看上下文 token 占用与阈值状态",
-        "/context\n/context shrink 立即裁剪工具输出",
+        "/context 查看状态\n"
+        "/context shrink 立即裁剪工具输出\n"
+        "/context window <n> 运行期设置上下文窗口（tokens）\n"
+        "/context soft <ratio> 运行期设置软阈值比例（0~1）\n"
+        "/context hard <ratio> 运行期设置硬阈值比例（0~1）\n"
+        "/context reserve <n> 运行期设置输出预留 token 数\n"
+        "/context reset 清除运行期覆盖，回退到 .env/默认值",
         "_cmd_context",
     ),
     CommandSpec(

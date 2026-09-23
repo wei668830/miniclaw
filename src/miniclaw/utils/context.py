@@ -160,23 +160,70 @@ def estimate_messages_tokens(messages: list) -> int:
     return total
 
 
+# ---------------------------------------------------------------------------
+# 预算覆盖（三级优先级：运行期覆盖 > .env/环境变量 > 内置默认值）
+#
+# 运行期覆盖由 CLI 快捷命令（/context window|soft|hard|reserve|reset）设置，
+# 仅作用于当前进程、不落盘；如需长期生效请写入 .env。
+# ---------------------------------------------------------------------------
+_RUNTIME_BUDGET_OVERRIDES: dict[str, float] = {}
+
+# 覆盖项名 -> (环境变量名, 解析类型)；环境变量名与 .env / constant.py 保持一致
+_BUDGET_FIELDS: dict[str, tuple[str, str]] = {
+    "window": ("MINICLAW_CONTEXT_WINDOW", "int"),
+    "soft_ratio": ("MINICLAW_CONTEXT_SOFT_RATIO", "float"),
+    "hard_ratio": ("MINICLAW_CONTEXT_HARD_RATIO", "float"),
+    "reserve": ("MINICLAW_CONTEXT_RESERVE_TOKENS", "int"),
+}
+
+
+def set_budget_override(name: str, value) -> float:
+    """设置运行期预算覆盖值，立即对 ``get_context_budget`` 生效。
+
+    ``name`` ∈ {window, soft_ratio, hard_ratio, reserve}；未知名称抛 KeyError。
+    """
+    if name not in _BUDGET_FIELDS:
+        raise KeyError(name)
+    val = float(value)
+    _RUNTIME_BUDGET_OVERRIDES[name] = val
+    return val
+
+
+def clear_budget_overrides() -> None:
+    """清除所有运行期覆盖，回退到 .env / 环境变量 / 默认值。"""
+    _RUNTIME_BUDGET_OVERRIDES.clear()
+
+
+def get_budget_overrides() -> dict[str, float]:
+    """返回当前运行期覆盖项副本（只读用途）。"""
+    return dict(_RUNTIME_BUDGET_OVERRIDES)
+
+
 def get_context_budget() -> tuple[int, int, int]:
     """读取上下文预算配置，返回 (soft, hard, window)。
 
+    解析优先级：运行期覆盖 > .env/环境变量 > 内置默认值；
     保证 soft < hard，且 hard <= window - reserve；配置异常时回退默认值。
     """
-    window = EnvVarLoader.get_int(
-        "MINICLAW_CONTEXT_WINDOW", DEFAULT_CONTEXT_WINDOW
-    )
-    soft_ratio = EnvVarLoader.get_float(
-        "MINICLAW_CONTEXT_SOFT_RATIO", DEFAULT_CONTEXT_SOFT_RATIO
-    )
-    hard_ratio = EnvVarLoader.get_float(
-        "MINICLAW_CONTEXT_HARD_RATIO", DEFAULT_CONTEXT_HARD_RATIO
-    )
-    reserve = EnvVarLoader.get_int(
-        "MINICLAW_CONTEXT_RESERVE_TOKENS", DEFAULT_CONTEXT_RESERVE_TOKENS
-    )
+    defaults = {
+        "window": DEFAULT_CONTEXT_WINDOW,
+        "soft_ratio": DEFAULT_CONTEXT_SOFT_RATIO,
+        "hard_ratio": DEFAULT_CONTEXT_HARD_RATIO,
+        "reserve": DEFAULT_CONTEXT_RESERVE_TOKENS,
+    }
+    resolved: dict[str, float] = {}
+    for name, (env_var, kind) in _BUDGET_FIELDS.items():
+        if name in _RUNTIME_BUDGET_OVERRIDES:
+            resolved[name] = _RUNTIME_BUDGET_OVERRIDES[name]
+        elif kind == "int":
+            resolved[name] = EnvVarLoader.get_int(env_var, defaults[name])
+        else:
+            resolved[name] = EnvVarLoader.get_float(env_var, defaults[name])
+
+    window = int(resolved["window"])
+    soft_ratio = float(resolved["soft_ratio"])
+    hard_ratio = float(resolved["hard_ratio"])
+    reserve = int(resolved["reserve"])
 
     try:
         if window <= 0:
