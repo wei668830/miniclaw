@@ -54,6 +54,13 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "_cmd_chat",
     ),
     CommandSpec(
+        "web-search", "开启/关闭联网搜索（豆包搜索）",
+        "/web-search 查看联网搜索状态\n"
+        "/web-search on 开启联网搜索\n"
+        "/web-search off 关闭联网搜索",
+        "_cmd_web_search",
+    ),
+    CommandSpec(
         "clear", "清除对话上下文", "/clear", "_cmd_clear"
     ),
     CommandSpec(

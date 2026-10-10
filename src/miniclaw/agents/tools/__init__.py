@@ -6,6 +6,7 @@ from .launch_detached import launch_detached
 from .shell import execute_shell_command
 from .view_image import view_image
 from .get_current_time import get_current_time, set_user_timezone
+from .web_search import web_search
 
 __all__ = [
     "read_file",
@@ -22,4 +23,5 @@ __all__ = [
     "launch_detached",
     "get_current_time",
     "set_user_timezone",
+    "web_search",
 ]

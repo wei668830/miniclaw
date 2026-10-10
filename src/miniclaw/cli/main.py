@@ -107,7 +107,10 @@ class CommandLineInteraction:
         self.max_tokens = None
 
         self.client = get_llm_client()
-        self.tools = llm_tools_manager.get_llm_tools()
+        # 联网搜索开关（默认关闭，可由 MINICLAW_WEB_SEARCH_ENABLED 指定初始状态）
+        self.web_search_enabled = EnvVarLoader.get_bool("MINICLAW_WEB_SEARCH_ENABLED", False)
+        self.tools = []
+        self._refresh_tools()
         self.messages = []
         self.should_exit = False  # 增加退出标志
         # 非调试代码时使用，调试时请注释
@@ -765,6 +768,54 @@ class CommandLineInteraction:
     def _cmd_chat(self, arg: str | None):
         """处理 /chat 命令。"""
         self.runtime_mode = "chat"
+
+    def _refresh_tools(self):
+        """根据联网搜索开关重新计算下发给模型的工具列表。"""
+        exclude = [] if self.web_search_enabled else ["web_search"]
+        self.tools = llm_tools_manager.get_llm_tools(exclude=exclude)
+
+    def _cmd_web_search(self, arg: str | None):
+        """处理 /web-search 命令：查看/开启/关闭联网搜索（豆包搜索）。"""
+        from ..agents.tools.web_search import load_search_config
+
+        sub = (arg or "").strip().lower()
+        if not sub:
+            status = "on" if self.web_search_enabled else "off"
+            config = load_search_config()
+            key_state = "已配置" if config["api_key"] else "未配置"
+            available = "web_search" in llm_tools_manager.tools
+            console.print(f"[green]联网搜索：{status}[/green]")
+            console.print(
+                f"[dim]API Key：{key_state}（配置文件：{escape(config['config_path'])}）[/dim]"
+            )
+            console.print(
+                f"[dim]工具可用：{'是' if available else '否（需 LLM_ENABLED_TOOLS 包含 web_search）'}[/dim]"
+            )
+            return
+
+        if sub in ("on", "enable", "true", "1"):
+            if "web_search" not in llm_tools_manager.tools:
+                console.print(
+                    "[yellow]⚠️ 联网搜索工具未在环境中启用（需 LLM_ENABLED_TOOLS 包含 web_search）[/yellow]"
+                )
+            config = load_search_config()
+            if not config["api_key"]:
+                console.print(
+                    f"[yellow]⚠️ 未检测到豆包搜索 API Key，请在配置文件 "
+                    f"{escape(config['config_path'])} 的 \"api_key\" 字段填写。[/yellow]"
+                )
+            self.web_search_enabled = True
+            self._refresh_tools()
+            console.print("[green]✅ 已开启联网搜索[/green]")
+            return
+
+        if sub in ("off", "disable", "false", "0"):
+            self.web_search_enabled = False
+            self._refresh_tools()
+            console.print("[green]✅ 已关闭联网搜索[/green]")
+            return
+
+        console.print("[red]❌ 未知参数；用法：/web-search \\[on|off][/red]")
 
     def _cmd_clear(self, arg: str | None):
         """处理 /clear 命令。"""

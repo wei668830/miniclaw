@@ -7,7 +7,7 @@ from .base_llm_client import ToolResponse, TextBlock
 from .constant import LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER
 from .tools import (read_file, write_file, edit_file, append_file,
                     execute_shell_command, view_image, browser_use, desktop_screenshot, grep_search, glob_search,
-                    launch_detached, get_current_time, set_user_timezone, tail_file)
+                    launch_detached, get_current_time, set_user_timezone, tail_file, web_search)
 from ..constant import EnvVarLoader
 
 BUILTIN_TOOLS = {
@@ -660,6 +660,114 @@ BUILTIN_TOOLS = {
                         }
                     },
                     "required": ["timezone_name"]
+                }
+            }
+        }
+    },
+    "web_search": {
+        "invoke": web_search,
+        "definition": {
+            "type": "function",
+            "function": {
+                "name": "web_search",
+                "description": (
+                    "联网搜索工具（豆包搜索 Custom 版），用于获取外部/最新资料。"
+                    "支持 web 网页搜索与 image 图片搜索，返回标题、链接与正文摘要。"
+                    "当需要实时信息、最新资讯或本地知识之外的资料时使用。"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "搜索词，1~100 个字符，不支持多词。"
+                        },
+                        "search_type": {
+                            "type": "string",
+                            "enum": ["web", "image"],
+                            "description": "搜索类型：web（网页，默认）或 image（图片）。",
+                            "default": "web"
+                        },
+                        "count": {
+                            "type": "integer",
+                            "description": "返回条数：web 最多 50（默认 10），image 最多 5。",
+                            "default": 10
+                        },
+                        "need_content": {
+                            "type": "boolean",
+                            "description": "web 专用：是否仅返回有正文的结果，默认 false。",
+                            "default": False
+                        },
+                        "need_url": {
+                            "type": "boolean",
+                            "description": "web 专用：是否仅返回有原文链接的结果，默认 true。",
+                            "default": True
+                        },
+                        "sites": {
+                            "type": "string",
+                            "description": "web 专用：指定搜索站点范围，多个用 '|' 分隔，最多 20 个（需完整域名）。"
+                        },
+                        "block_hosts": {
+                            "type": "string",
+                            "description": "web 专用：屏蔽站点，多个用 '|' 分隔，最多 5 个（需完整域名）。"
+                        },
+                        "auth_info_level": {
+                            "type": "integer",
+                            "enum": [0, 1],
+                            "description": "web 专用：1 表示仅返回「非常权威」结果，0 不限制，默认 0。",
+                            "default": 0
+                        },
+                        "time_range": {
+                            "type": "string",
+                            "description": "web 专用：发文时间范围，OneDay/OneWeek/OneMonth/OneYear，或 'YYYY-MM-DD..YYYY-MM-DD'。"
+                        },
+                        "query_rewrite": {
+                            "type": "boolean",
+                            "description": "是否开启 Query 改写（会增加搜索耗时），默认 false。",
+                            "default": False
+                        },
+                        "content_formats": {
+                            "type": "string",
+                            "enum": ["text", "markdown"],
+                            "description": "web 专用：返回正文格式，默认 text。",
+                            "default": "text"
+                        },
+                        "industry": {
+                            "type": "string",
+                            "enum": ["finance", "game", "gov"],
+                            "description": "web 专用：行业搜索，finance（金融）/ game（电子游戏）/ gov（政府官媒）。"
+                        },
+                        "need_summary": {
+                            "type": "boolean",
+                            "description": "web 专用：是否返回相关摘要 Summary（推荐用于大模型场景），默认 true。",
+                            "default": True
+                        },
+                        "image_width_min": {
+                            "type": "integer",
+                            "description": "image 专用：最小宽度。"
+                        },
+                        "image_height_min": {
+                            "type": "integer",
+                            "description": "image 专用：最小高度。"
+                        },
+                        "image_width_max": {
+                            "type": "integer",
+                            "description": "image 专用：最大宽度。"
+                        },
+                        "image_height_max": {
+                            "type": "integer",
+                            "description": "image 专用：最大高度。"
+                        },
+                        "image_shapes": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": ["横长方形", "竖长方形", "方形"]
+                            },
+                            "description": "image 专用：允许的图片形状。"
+                        }
+                    },
+                    "required": ["query"]
                 }
             }
         }
