@@ -1,3 +1,9 @@
+"""对话轮次（turn-taking）辅助函数。
+
+用于从消息列表中筛选用户/模型的有效对话、截取最近 N 轮，以及构建（已弃用的）
+「是否继续执行」裁判消息。
+"""
+
 import json
 
 from ..constant import EnvVarLoader

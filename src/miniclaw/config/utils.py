@@ -1,4 +1,9 @@
 # -*- coding: utf-8 -*-
+"""MiniClaw 配置工具模块。
+
+提供系统默认浏览器探测（Chromium / Firefox / WebKit）、Playwright 可执行文件
+路径解析、工作目录绑定路径归一化，以及容器环境（Docker/Kubernetes）判定等能力。
+"""
 from __future__ import annotations
 
 import logging
@@ -31,6 +36,11 @@ def _normalize_working_dir_bound_paths(data: object) -> object:
     new_root_abs = str(WORKING_DIR)
 
     def _rewrite_path_value(v: object) -> object:
+        """将旧版绑定路径前缀（``~/.miniclaw`` 或旧绝对根）改写为当前 WORKING_DIR。
+
+        :param v: 待处理的路径值
+        :return: 改写后的值；非字符串或空值时原样返回
+        """
         if not isinstance(v, str) or not v:
             return v
         if v.startswith(legacy_root_tilde):
@@ -40,6 +50,12 @@ def _normalize_working_dir_bound_paths(data: object) -> object:
         return v
 
     def _walk(obj: object, key: str | None = None) -> object:
+        """递归遍历配置对象，对 ``workspace_dir`` / ``media_dir`` 等键做路径归一化。
+
+        :param obj: 待遍历的配置对象（dict / list / 标量）
+        :param key: 当前值对应的键名，用于判断是否为需改写的路径键
+        :return: 归一化后的对象
+        """
         if isinstance(obj, dict):
             out: dict = {}
             for k, v in obj.items():
