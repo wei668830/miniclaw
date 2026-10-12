@@ -2,23 +2,30 @@
 大模型脚本手架工具
 
 ## 特性
-* 提供一个交互式的命令行界面，与大模型交互以完成各项工作。
+* 提供命令行交互界面（CLI），与大模型交互以完成各项工作。
+* 提供 Web 后端（FastAPI）与桌面应用（Electron + React），支持可视化聊天、会话管理、技能与设置。
 * 对于复杂的任务，可以将其拆分成多个子任务，逐步完成。
 * 支持记忆管理，主要是针对超长任务中的上下文压缩以最大限度节省开支。
-* 支持办事员模式处理主管交代的任务，并且可以在需要时请求主管提供更多信息。
-* 支持无限推进模式，允许大模型自行判断何时需要继续推进任务，直到任务完成。
+* 支持办事员模式（子代理）处理主管交代的任务，并且可以在需要时请求主管提供更多信息。
+* 支持自主推进模式（`agent`），允许大模型自行判断何时需要继续推进任务，直到任务完成；`chat` 模式为一问一答。
 * 支持软件工程开发的各个环节，包括但不限于需求分析、设计、编码、测试(使用 playwright 进行B/S集成测试)、部署等。
 * 支持多个大模型配置，可以即时切换生效。
+* 支持联网搜索（豆包搜索）、图片查看、屏幕截图、后台独立进程运行等工具。
 
 ## 工具列表
-* 文件读写
-* 文件查找
-* `SHELL`命令
-* 浏览器操作（基于`playwright`对于设置防火防盗防AI的网站操作不了！）
-* 屏幕截图
-* 独立进程运行（在后台启动一个完全独立的进程，脱离当前Python程序独立运行。适用于启动 Spring Boot、Node.js、执行yarn/npm 构建等场景。路径支持~表示用户目录。）
-* 办事员（办事员处理各项子任务，不允许办事员再召唤办事员要不然你会发现地狱不止十八层！）
-* 任务规划者（对于复杂任务进行规划）
+* 文件读写：`read_file`、`write_file`、`edit_file`、`append_file`、`tail_file`
+* 文件查找：`find_files`（按文件名）、`search_file_contents`（按内容检索）
+* `SHELL` 命令：`execute_shell_command`
+* 浏览器操作：`control_browser`（基于 `playwright`，对设置防火防盗防 AI 的网站操作不了！）
+* 屏幕截图：`capture_screenshot`
+* 图片查看：`view_image`
+* 时间：`get_current_time` / `set_user_timezone`
+* 联网搜索：`web_search`（豆包搜索，默认关闭，可用 `/web-search on|off` 切换）
+* 独立进程运行：`launch_detached`（在后台启动一个完全独立的进程，脱离当前 Python 程序独立运行。适用于启动 Spring Boot、Node.js、执行 yarn/npm 构建等场景。路径支持 ~ 表示用户目录。）
+* 办事员（子任务执行器）：`subtask_executor`（处理各项子任务，子代理默认不允许再召唤子代理）
+* 任务规划者：`make_plans`（对复杂任务进行规划）
+
+> 工具的启用/禁用可通过 `LLM_ENABLED_TOOLS`（`*` 表示启用全部）与 `LLM_DISABLED_TOOLS`（逗号分隔）配置；默认示例禁用了 `find_files,search_file_contents`。
 
 ## 默认技能列表
 * pdf-zh
@@ -29,12 +36,13 @@
 * web-search
 * markitdown
 
-> 技能默认存放于 `~/.miniclaw/skills` 文件夹路径，第三方的技能请拷贝至该文件夹。
+> 技能默认存放于 `~/.miniclaw/skills` 文件夹路径（可用 `MINICLAW_SKILLS_DIR` 覆盖），第三方的技能请拷贝至该文件夹。
 > 启用技能的方式
 > cli 模式：`/skill-list` 显示技能列表 `/skill-load <skill-name>,...`  加载技能
-> 注意技能加载后不需要卸载（因为技能指引内容在用户对话里），若执行 `/clear` 会清除技能指引的内容
+> ui 模式：在「技能」面板中加载技能
+> 注意技能以 `SKILL.md` 全文注入用户对话（不改 system prompt），加载后无需卸载；执行 `/clear` 或新建会话会清除已加载的技能指引内容
 
-> 大模型的连接方式是基于 `LLM` 抽象类的，默认提供了 `DeepSeek` 的实现，用户也可以根据需要实现自己的 `LLM` 类来连接其他大模型服务。
+> 大模型的连接基于统一抽象 `BaseLLMClient`，默认实现为基于 `LiteLLM` 的 `LiteLLMClient`，通过环境变量即可接入各家大模型；也可以自行实现 `BaseLLMClient` 来连接其他大模型服务。
 > LiteLLM 支持的大模型以及连接方式参考文档：https://docs.litellm.ai/docs/providers
 
 ## 环境配置
@@ -51,6 +59,7 @@
   * `playwright install` (安装浏览器)
   * `pip install uvicorn` (安装服务器)
   * `pip install litellm[proxy]` (安装 LiteLLM 代理)
+* 桌面应用（`miniclaw ui`）额外需要 `Node.js`（Electron + Vite），进入 `frontend/` 执行 `npm install` 安装前端依赖
 
 ## 运行配置
 
@@ -71,12 +80,18 @@
   miniclaw> /llm
   # 切换大模型配置（不分大小写）
   miniclaw> /llm use <custom_name>
-  # 临时设置大模型配置，以冒号分隔，其中 `CUSTOM_LLM_PROVIDER` 为可选项
-  miniclaw> /llm set <LLM_MODEL>:<LLM_BASE_URL>:<LLM_API_KEY>[:<CUSTOM_LLM_PROVIDER>]
+  # 临时设置大模型配置，多个字段以 $$$ 分隔，其中 `CUSTOM_LLM_PROVIDER` 为可选项
+  miniclaw> /llm set <LLM_MODEL>$$$<LLM_BASE_URL>$$$<LLM_API_KEY>[$$$<CUSTOM_LLM_PROVIDER>]
   ```
 
 
 ### 运行方式
+统一入口为 `python -m miniclaw`，提供三种子命令：
+
+* `cli`（默认）：交互式命令行界面
+* `server`：仅启动 FastAPI 后端
+* `ui`：桌面应用（后端 + Electron 前端）
+
 **Windows 系统**
 
 将 `miniclaw.bat` 中的 `python.exe` 路径替换为本机路径
@@ -87,45 +102,72 @@
 
 **Linux 系统**
 
-同上
+编辑 `miniclaw.sh`，将 `PYTHON` 替换为本机解释器路径
 
 **运行命令**
 ```bash
-# 在 Commander/Power Shell 或者 Shell 中运行 `miniclaw` 命令，进入交互式命令行界面。
+# 默认进入 CLI 交互模式
+miniclaw.bat            # Windows
+./miniclaw.sh           # Linux/macOS
 
-miniclaw.bat
+# 或直接使用模块入口指定子命令
+python -m miniclaw cli      # CLI 交互模式
+python -m miniclaw server   # 仅后端（默认 0.0.0.0:8000，可 --host/--port/--no-reload）
+python -m miniclaw ui       # 桌面应用（后端默认 7909 + Electron，--dev 开发模式 / --no-build 跳过前端构建）
 ```
 
 ### CLI 获取帮助
-```bash
-miniclaw> /help
-                                                        可用命令
-┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ 命令         ┃ 说明                     ┃ 示例                                                                       ┃
-┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ /help        │ 显示帮助信息             │ /help                                                                      │
-│ /llm         │ 显示/切换/设置大模型配置 │ /llm 显示大模型列表*号标记正在使用的大模型配置                             │
-│              │                          │ /llm use <model> 切换大模型配置                                            │
-│              │                          │ /llm set <model>:<api_url>:<api_key>[:<custom_llm_provider>]               │
-│              │                          │ 设置临时大模型配置                                                         │
-│ /agent       │ 运行模式切换为代理模式   │ /agent 代理模式下大模型将尽量自动推进任务执行                              │
-│ /chat        │ 运行模式切切换为对话模式 │ /chat 对话模式下大模型将采用一问一答的方式                                 │
-│ /clear       │ 清除对话上下文           │ /clear                                                                     │
-│ /history     │ 历史对话记录             │ /history N 最近N条历史对话记录，若不指定N默认看最后3条记录                 │
-│ /memory      │ 记忆缓存                 │ /memory 精简记忆  /memory <记忆缓存> 提取记忆                              │
-│ /memory-list │ 记忆缓存列表             │ /memory-list 查看记忆缓存列表(默认最新的前10个记忆)                        │
-│              │                          │ /memory-list 20 查看最新的前20个记忆                                       │
-│ /skill-list  │ 可用的技能列表           │ /skill-list 扫描 '~/code-agent/skills' 目录下的技能列表                    │
-│ /skill-load  │ 加载技能                 │ /skill-load <skill-name>,... 同时加载多个技能以逗号分隔                    │
-│ /quit        │ 退出 MiniClaw            │ /quit                                                                      │
-└──────────────┴──────────────────────────┴────────────────────────────────────────────────────────────────────────────┘
-```
+在 CLI 中输入 `/help` 可查看全部可用命令。当前命令如下：
+
+| 命令 | 说明 | 示例 |
+| --- | --- | --- |
+| `/help` | 显示帮助信息 | `/help` |
+| `/llm` | 显示/切换/设置大模型配置 | `/llm`；`/llm use <name>`；`/llm set <model>$$$<api_url>$$$<api_key>[$$$<custom_llm_provider>]` |
+| `/agent` | 运行模式切换为代理模式 | `/agent`（自动推进任务执行） |
+| `/chat` | 运行模式切换为对话模式 | `/chat`（一问一答） |
+| `/web-search` | 开启/关闭联网搜索（豆包搜索） | `/web-search`；`/web-search on`；`/web-search off` |
+| `/model` | 查看/设置当前模型 | `/model`；`/model <model>` |
+| `/api_key` | 查看/设置当前 API KEY | `/api_key`；`/api_key <key>` |
+| `/base_url` | 查看/设置当前 Base URL | `/base_url`；`/base_url <url>` |
+| `/custom_llm_provider` | 查看/设置自定义模型供应商 | `/custom_llm_provider`；`/custom_llm_provider <provider>` |
+| `/temperature` | 查看/设置温度（0.0~1.0） | `/temperature`；`/temperature 0.7` |
+| `/max_token` | 查看/设置最大词元数 | `/max_token`；`/max_token 4096` |
+| `/clear` | 清除对话上下文（同时重置已加载技能） | `/clear` |
+| `/history` | 历史对话记录 | `/history N`（默认最后 3 条） |
+| `/memory` | 记忆缓存 | `/memory` 精简记忆；`/memory <记忆文件名>` 提取记忆 |
+| `/memory-list` | 记忆缓存列表 | `/memory-list`；`/memory-list 20` |
+| `/context` | 查看上下文 token 占用与阈值状态 | `/context`；`/context shrink`；`/context window <n>`；`/context soft <ratio>`；`/context hard <ratio>`；`/context reserve <n>`；`/context reset` |
+| `/cost` | 查看本次对话费用（官方口径） | `/cost` |
+| `/balance` | 查询账户余额（官方） | `/balance` |
+| `/session-list` | 列出最近的会话 | `/session-list N`（默认 10，`*` 标记当前会话） |
+| `/session-load` | 加载指定会话到上下文（不自动接续） | `/session-load <session_id>` |
+| `/session-resume` | 恢复并接续执行指定会话 | `/session-resume <session_id>` |
+| `/session-export` | 导出指定会话为 Markdown | `/session-export <session_id> [path]` |
+| `/skill-list` | 可用的技能列表 | `/skill-list`（扫描 `~/.miniclaw/skills`） |
+| `/skill-load` | 加载技能 | `/skill-load <skill-name>,...` |
+| `/quit` | 退出 MiniClaw | `/quit` |
+
+
+## Web 后端与桌面应用
+
+除 CLI 外，MiniClaw 还提供 Web 后端与桌面应用：
+
+* **Web 后端**（`python -m miniclaw server`）：基于 FastAPI，暴露会话 / 流式聊天（SSE）/ 技能 / 配置 / 上下文等 REST 接口（路由见 `src/miniclaw/app/routers`）。除 `/api/health`、`/api/version` 外，接口通过 `Authorization: Bearer <MINICLAW_API_TOKEN>` 鉴权（未配置该环境变量时视为开发模式放行）。
+* **桌面应用**（`python -m miniclaw ui`）：后端 + Electron 前端，一键启动，后端默认 `127.0.0.1:7909`（可用 `--port` 或 `MINICLAW_UI_PORT` 覆盖，端口占用时自动回退空闲端口）。
+  * 开发模式：`python -m miniclaw ui --dev`（后端 `--reload` + Vite devServer）；`--no-build` 可跳过前端构建（假定 `dist/` 已存在）。
+  * 前端工程位于 `frontend/`（Electron + React + TypeScript + Vite），首次使用需 `cd frontend && npm install`。
+  * 关闭窗口即同步销毁后端进程；仅允许单实例运行。
+
+## 联网搜索（豆包搜索）
+
+* 默认关闭，CLI 中用 `/web-search on|off` 动态开关。
+* API Key 推荐写入配置文件（默认 `<WORKING_DIR>/config/web_search.json`，即 `~/.miniclaw/config/web_search.json`，文件不存在时自动生成模板），也可用 `DOUBAO_SEARCH_API_KEY` / `DOUBAO_SEARCH_URL` / `DOUBAO_SEARCH_TIMEOUT` 等环境变量覆盖（详见 `.env.example`）。
 
 
 ## 会话推进机制（agent 模式）
 * 会话推进采用**提示词驱动自主执行（agent 模式）**，不再使用裁判续跑逻辑。
   * `agent` 模式下自动注入自主执行提示词，模型在还能通过工具取得进展时持续执行，仅在任务完成或确实被阻塞时停止。
-  * 安全网：单轮对话连续工具调用超过 `MINICLAW_MAX_TOOL_ITERATIONS`（默认 50）会暂停并提示；子代理嵌套层级超过 `MINICLAW_MAX_SUBAGENT_LAYER`（默认 5）会被拒绝执行。
+  * 安全网：单轮对话连续工具调用超过 `MINICLAW_MAX_TOOL_ITERATIONS`（默认 100000，近乎不限制）会暂停并提示；子代理嵌套层级超过 `MINICLAW_MAX_SUBAGENT_LAYER`（默认 1，即子代理不再派生子代理）会被拒绝执行。
   * `chat` 模式仍为一问一答，不自主推进。
   * `CHAT_ADVANCE_SYSTEM_PROMPT` / `CHAT_ADVANCE_USER_PROMPT` 已废弃（deprecated），已从示例配置中移除，相关函数仅为兼容保留、不再使用。
 
@@ -192,8 +234,8 @@ miniclaw> /help
 | `CHAT_AGENT_AUTONOMY_PROMPT` | 内置默认文案 | agent 模式自主执行提示词 |
 | `CHAT_CLERK_AUTONOMY_PROMPT` | 内置默认文案 | 子代理自主执行提示词 |
 | `CHAT_TASK_DONE_TOKEN` | `【TASK_DONE】` | 任务完成哨兵标记 |
-| `MINICLAW_MAX_TOOL_ITERATIONS` | `50` | 单轮对话最大连续工具调用次数（安全网） |
-| `MINICLAW_MAX_SUBAGENT_LAYER` | `5` | 子代理最大嵌套层级 |
+| `MINICLAW_MAX_TOOL_ITERATIONS` | `100000` | 单轮对话最大连续工具调用次数（安全网，近乎不限制） |
+| `MINICLAW_MAX_SUBAGENT_LAYER` | `1` | 子代理最大嵌套层级（默认 1，即子代理不再派生子代理） |
 | `MINICLAW_KEEP_REASONING_CONTENT` | 自动识别 | 思维链回传开关：留空按模型自动识别（DeepSeek 保留、其余剥离）；`1/0` 强制保留/剥离 |
 
 ## 调试说明
