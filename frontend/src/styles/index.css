@@ -27,7 +27,17 @@ body {
 .app-shell { display: flex; flex-direction: column; height: 100vh; }
 .app-body { flex: 1; display: flex; min-height: 0; }
 
+/* ---------- 自定义标题栏（无框窗口） ---------- */
+.titlebar { height: 34px; display: flex; align-items: center; padding-left: 12px; background: var(--bg-panel); border-bottom: 1px solid var(--border); -webkit-app-region: drag; user-select: none; }
+.titlebar-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; letter-spacing: 1px; color: var(--fg); }
+.titlebar-logo { width: 20px; height: 20px; object-fit: contain; display: block; }
+.titlebar-controls { margin-left: auto; display: flex; height: 100%; -webkit-app-region: no-drag; }
+.titlebar-btn { width: 46px; height: 100%; border: none; background: transparent; color: var(--fg-muted); display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; outline: none; -webkit-app-region: no-drag; }
+.titlebar-btn:hover { background: rgba(0, 0, 0, 0.06); color: var(--fg); }
+.titlebar-btn.close:hover { background: #e81123; color: #fff; }
+
 .loading-screen { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+.loading-logo { width: 96px; height: 96px; object-fit: contain; }
 .loading-title { font-size: 28px; font-weight: 700; letter-spacing: 2px; }
 .loading-text { color: var(--fg-muted); }
 
@@ -36,10 +46,18 @@ body {
 .sidebar-head { padding: 14px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--border); }
 .brand { font-weight: 700; font-size: 16px; }
 .session-list { flex: 1; overflow: auto; padding: 8px; }
-.session-item { padding: 10px; border-radius: 8px; cursor: pointer; margin-bottom: 6px; }
+.session-item { display: flex; align-items: center; gap: 6px; padding: 10px; border-radius: 8px; cursor: pointer; margin-bottom: 6px; }
 .session-item:hover { background: #f0f2f5; }
 .session-item.active { background: #e7effd; }
-.session-summary { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-summary { flex: 1; min-width: 0; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.session-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.12s; }
+.session-item:hover .session-actions { opacity: 1; }
+.session-item.active .session-actions { opacity: 1; }
+.session-btn { border: none; background: transparent; cursor: pointer; padding: 2px 4px; border-radius: 6px; font-size: 12px; line-height: 1; color: var(--fg-muted); }
+.session-btn:hover { background: rgba(0, 0, 0, 0.08); color: var(--fg); }
+.session-btn.danger { color: var(--danger); }
+.session-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.load-more { width: 100%; margin-top: 4px; }
 .session-meta { color: var(--fg-muted); font-size: 12px; margin-top: 4px; }
 
 /* ---------- 主区 ---------- */
@@ -60,7 +78,7 @@ body {
 .bubble.assistant { background: var(--assistant-bubble); border-bottom-left-radius: 4px; }
 .msg.system { align-self: center; background: #fff6db; color: #7a5b00; padding: 8px 12px; border-radius: 8px; font-size: 13px; white-space: pre-wrap; max-width: 90%; }
 .injected-skills { margin-top: 6px; font-size: 12px; opacity: 0.85; }
-.reasoning { margin-bottom: 8px; font-size: 13px; color: var(--fg-muted); }
+.reasoning { margin-bottom: 4px; font-size: 13px; color: var(--fg-muted); }
 .reasoning > summary { cursor: pointer; }
 .typing { color: var(--fg-muted); }
 .task-done { margin-top: 8px; color: var(--ok); font-weight: 600; }
@@ -72,13 +90,14 @@ body {
 .markdown th, .markdown td { border: 1px solid var(--border); padding: 4px 8px; }
 
 /* ---------- 工具卡片 ---------- */
-.tool-card { border: 1px solid var(--border); border-radius: 8px; margin: 6px 0; background: #fbfbfc; font-size: 13px; }
-.tool-card-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: pointer; }
+.tool-card { border: 1px solid var(--border); border-radius: 6px; margin: 2px 0; background: #fbfbfc; font-size: 12px; }
+.tool-card-head { display: flex; align-items: center; gap: 6px; padding: 2px 8px; cursor: pointer; line-height: 1.4; }
 .tool-name { font-weight: 600; }
-.tool-toggle { margin-left: auto; color: var(--fg-muted); }
-.tool-card-body { padding: 8px 10px; border-top: 1px solid var(--border); }
-.tool-section-title { font-weight: 600; color: var(--fg-muted); margin: 6px 0 4px; }
-.tool-args, .tool-result { white-space: pre-wrap; word-break: break-word; background: #f2f4f6; padding: 8px; border-radius: 6px; max-height: 260px; overflow: auto; margin: 0; }
+.tool-icon { font-size: 12px; }
+.tool-toggle { margin-left: auto; color: var(--fg-muted); font-size: 11px; }
+.tool-card-body { padding: 5px 8px; border-top: 1px solid var(--border); }
+.tool-section-title { font-weight: 600; color: var(--fg-muted); margin: 3px 0 2px; }
+.tool-args, .tool-result { white-space: pre-wrap; word-break: break-word; background: #f2f4f6; padding: 6px 8px; border-radius: 6px; max-height: 180px; overflow: auto; margin: 0; }
 
 /* ---------- 输入区 ---------- */
 .composer { position: relative; border-top: 1px solid var(--border); padding: 12px 14px; background: var(--bg-panel); display: flex; gap: 10px; align-items: flex-end; }
@@ -134,3 +153,16 @@ body {
 .segmented button.active { border-color: var(--accent); background: #e7effd; color: var(--accent); }
 .switch { display: flex; align-items: center; gap: 8px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+
+/* ---------- 文件快捷操作条（ToolCallCard 底部） ---------- */
+.btn.tiny { padding: 2px 8px; font-size: 11.5px; border-radius: 6px; }
+.file-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 4px 8px; border-top: 1px dashed var(--border); }
+.file-actions-buttons { display: flex; gap: 6px; flex: 0 0 auto; }
+.file-actions-path { color: var(--fg-muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.file-actions-hint { color: var(--accent); font-size: 11.5px; }
+
+/* ---------- 交互确认选项按钮组 ---------- */
+.choice-options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.btn.choice { background: #e7effd; border-color: var(--accent); color: var(--accent); padding: 6px 12px; font-size: 13px; }
+.btn.choice:hover { background: #d8e6fc; }
+.btn.choice.answered { background: #eef7ef; border-color: var(--ok); color: var(--ok); opacity: 1; }

@@ -5,6 +5,13 @@ declare global {
     miniclaw?: {
       getConnection: () => Promise<{ baseUrl: string; token: string }>;
       getBackendInfo: () => Promise<{ baseUrl: string; token: string; external: boolean }>;
+      minimizeWindow?: () => Promise<void>;
+      toggleMaximizeWindow?: () => Promise<boolean>;
+      closeWindow?: () => Promise<void>;
+      isMaximized?: () => Promise<boolean>;
+      onMaximizedChange?: (callback: (maximized: boolean) => void) => () => void;
+      openPath?: (target: string) => Promise<{ ok: boolean; error?: string | null }>;
+      showItemInFolder?: (target: string) => Promise<{ ok: boolean; error?: string | null }>;
     };
   }
 }
@@ -65,6 +72,18 @@ export async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`PATCH ${path} -> HTTP ${res.status}`);
+  const text = await res.text();
+  return (text ? JSON.parse(text) : {}) as T;
+}
+
+export async function apiDelete<T>(path: string, body?: unknown): Promise<T> {
+  const { baseUrl, token } = await getConnection();
+  const res = await fetch(`${baseUrl}${path}`, {
+    method: 'DELETE',
+    headers: headers(token),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`DELETE ${path} -> HTTP ${res.status}`);
   const text = await res.text();
   return (text ? JSON.parse(text) : {}) as T;
 }

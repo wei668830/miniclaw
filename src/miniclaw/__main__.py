@@ -26,6 +26,7 @@ from loguru import logger
 
 from miniclaw.__version__ import __version__
 from miniclaw.constant import EnvVarLoader
+from miniclaw.utils.logger import setup_logger
 
 load_dotenv()
 
@@ -125,8 +126,9 @@ def _wait_healthy(url: str, timeout: float = 30.0) -> bool:
             with urllib.request.urlopen(url, timeout=2) as resp:
                 if resp.status == 200:
                     return True
-        except Exception:
-            logger.opt(exception=True).debug('健康检查请求失败，稍后重试')
+        except Exception as e:
+            # 后端启动初期尚未监听端口属预期情况，仅打印一行简报，避免输出完整堆栈造成“报错”误导。
+            logger.debug("后端尚未就绪，健康检查稍后重试：{}", e)
             time.sleep(0.3)
     return False
 
@@ -207,6 +209,9 @@ def _electron_cmd(frontend_dir: Path):
 
 def run_ui(args):
     """启动桌面应用（后端 + Electron）。"""
+    # 初始化日志系统：尊重 LOG_LEVEL/LOG_DIR 等配置，避免 loguru 默认 handler
+    # 以 DEBUG 级、无格式方式输出（此前会把预期内的健康检查重试打印成完整堆栈）。
+    setup_logger()
     if not _acquire_single_instance_lock():
         return 1
 

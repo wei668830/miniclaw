@@ -8,16 +8,19 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from loguru import logger
 
 from ..cli.history_store import HistoryStore
+from ..cli.session_index import session_index
 from ..constant import DEFAULT_MEMORY_RAW_DIR, EnvVarLoader
-from ..utils.common import dt_uuid
 from .runtime import ChatSession
+
+# 列表对账（reconcile）的最小间隔（秒）：避免每次列表都全目录 stat
+_RECONCILE_TTL_SECONDS = 2.0
 
 
 class SessionManager:
@@ -28,6 +31,7 @@ class SessionManager:
         self._sessions: Dict[str, ChatSession] = {}
         self._current_id: Optional[str] = None
         self._lock = asyncio.Lock()
+        self._reconcile_ts = 0.0
 
     # ------------------------------------------------------------------
     # 基础查询
@@ -40,12 +44,30 @@ class SessionManager:
         base = EnvVarLoader.get_str("MINICLAW_MEMORY_RAW_DIR", DEFAULT_MEMORY_RAW_DIR)
         return Path(base).expanduser()
 
+    @staticmethod
+    def _is_empty(session: ChatSession) -> bool:
+        """判断会话是否为空（除 system 外无任何消息）。
+
+        :param session: 待判断的会话
+        :return: 无有效消息返回 True
+        """
+        return not any(m.get("role") != "system" for m in session.messages)
+
     def create(self, activate: bool = True) -> ChatSession:
         """新建并缓存一个会话，可选地设为当前会话。
 
-        :param activate: 是否将新会话切为当前会话
-        :return: 新建的 ChatSession 实例
+        若已存在空会话，则直接复用它（并可选地切为当前会话），避免「新建会话」
+        反复堆积多个空会话。
+
+        :param activate: 是否将目标会话切为当前会话
+        :return: 复用的空会话或新建的 ChatSession 实例
         """
+        for sid, existing in self._sessions.items():
+            if self._is_empty(existing):
+                if activate:
+                    self._current_id = sid
+                logger.info(f"检测到已存在的空会话，直接复用: {sid}")
+                return existing
         session = ChatSession()
         self._sessions[session.session_id] = session
         if activate:
@@ -109,60 +131,82 @@ class SessionManager:
     # ------------------------------------------------------------------
     # 列表
     # ------------------------------------------------------------------
-    def list_sessions(self, limit: int = 10) -> List[dict]:
-        """列出最近会话（内存 + 磁盘去重），按更新时间倒序。"""
-        raw_dir = self._raw_dir()
-        entries: Dict[str, dict] = {}
+    def list_sessions(self, limit: int = 10, offset: int = 0) -> List[dict]:
+        """列出会话（索引 + 内存会话合并），按更新时间倒序，支持分页。
 
-        # 内存中的会话
+        读取「轻量索引」（``session_index``），**不整读任何 JSONL**；仅在索引过期时
+        触发一次目录对账（仅 stat + 对缺失条目读首行）。返回条目不再统计 ``messages``
+        （前端列表不展示，恒为 0）。
+
+        :param limit: 单页最大条数
+        :param offset: 起始偏移（用于「加载更多」分页）
+        :return: 会话概要字典列表
+        """
+        now = time.time()
+        if now - self._reconcile_ts > _RECONCILE_TTL_SECONDS:
+            session_index.reconcile(self._raw_dir())
+            self._reconcile_ts = now
+
+        entries: Dict[str, dict] = session_index.all()
+
+        # 合并内存中会话（空会话也要出现；摘要/时间以内存为准补全）
         for sid, session in self._sessions.items():
-            entries[sid] = {
-                "session_id": sid,
-                "created_at": session.created_at,
-                "updated_at": session.created_at,
-                "messages": len([m for m in session.messages if m.get("role") != "system"]),
-                "summary": session.summary(),
-            }
-
-        # 磁盘上的历史文件
-        if raw_dir.exists():
-            for jsonl in raw_dir.glob("s*.jsonl"):
-                sid = jsonl.stem
-                if sid in entries:
-                    continue
-                try:
-                    stat = jsonl.stat()
-                    updated_at = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
-                except Exception:
-                    logger.opt(exception=True).debug('读取会话文件时间戳失败，按未知处理')
-                    updated_at = None
-                store = HistoryStore(sid)
-                messages = store.load_all()
-                summary = ""
-                for m in messages:
-                    if m.get("role") == "user" and isinstance(m.get("content"), str):
-                        content = m["content"]
-                        marker = "【用户最新输入】"
-                        if marker in content:
-                            content = content.split(marker, 1)[1]
-                        summary = content.strip().replace("\n", " ")[:60]
-                        break
+            entry = entries.get(sid)
+            if entry is None:
                 entries[sid] = {
-                    "session_id": sid,
-                    "created_at": updated_at,
-                    "updated_at": updated_at,
-                    "messages": len([m for m in messages if m.get("role") != "system"]),
-                    "summary": summary,
+                    "created_at": session.created_at,
+                    "updated_at": session.created_at,
+                    "summary": session.summary(),
                 }
+            else:
+                if not entry.get("summary"):
+                    entry["summary"] = session.summary()
+                if not entry.get("updated_at"):
+                    entry["updated_at"] = session.created_at
 
         sessions = sorted(
-            entries.values(),
+            (
+                {
+                    "session_id": sid,
+                    "created_at": e.get("created_at"),
+                    "updated_at": e.get("updated_at"),
+                    "summary": e.get("summary", ""),
+                    "messages": 0,
+                }
+                for sid, e in entries.items()
+            ),
             key=lambda e: e.get("updated_at") or "",
             reverse=True,
         )
         for s in sessions:
             s["current"] = (s["session_id"] == self._current_id)
-        return sessions[:limit]
+
+        if offset < 0:
+            offset = 0
+        return sessions[offset: offset + limit]
+
+    def delete(self, session_id: str) -> bool:
+        """删除会话：移除内存会话、磁盘历史文件与索引条目。
+
+        :param session_id: 会话 ID
+        :return: 是否存在被删除的内容（文件或内存会话）
+        """
+        existed = False
+        if session_id in self._sessions:
+            self._sessions.pop(session_id, None)
+            existed = True
+        try:
+            store = HistoryStore(session_id)
+            if store.path.exists():
+                store.path.unlink()
+                existed = True
+        except Exception:
+            logger.opt(exception=True).warning(f"删除会话历史文件失败: {session_id}")
+        session_index.remove(session_id)
+        if self._current_id == session_id:
+            self._current_id = None
+        logger.info(f"删除会话: {session_id} (existed={existed})")
+        return existed
 
     # ------------------------------------------------------------------
     # 生命周期

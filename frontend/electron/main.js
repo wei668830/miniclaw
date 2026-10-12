@@ -7,8 +7,9 @@
 // - 后端进程托管（形态 B：环境未提供 MINICLAW_BACKEND_URL 时自行拉起 Python 后端）
 // - UI 关闭 ⇒ 后端同步销毁（覆盖所有退出路径）
 
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Menu } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const { spawn } = require('child_process');
 const net = require('net');
 const http = require('http');
@@ -132,6 +133,24 @@ function killBackend() {
 }
 
 // ---------------------------------------------------------------------------
+// 窗口图标
+// ---------------------------------------------------------------------------
+// 未做打包时，窗口/任务栏图标由此处的 icon 决定。
+// 约定：将图标放到 frontend/build/ 下（Windows 优先 icon.ico，其次 icon.png）。
+function resolveWindowIcon() {
+  const candidates = [
+    path.join(__dirname, '..', 'build', 'icon.ico'),
+    path.join(__dirname, '..', 'build', 'icon.png'),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch (_) {}
+  }
+  return undefined; // 未提供时回退 Electron 默认图标
+}
+
+// ---------------------------------------------------------------------------
 // 窗口
 // ---------------------------------------------------------------------------
 function createWindow() {
@@ -141,6 +160,9 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'MiniClaw',
+    icon: resolveWindowIcon(),
+    frame: false,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -161,15 +183,49 @@ function createWindow() {
     win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
 
+  // 通知渲染进程最大化状态变化，用于切换自定义标题栏的按钮图标
+  const sendMaximized = () => {
+    if (win) win.webContents.send('window:maximized-changed', win.isMaximized());
+  };
+  win.on('maximize', sendMaximized);
+  win.on('unmaximize', sendMaximized);
+
   win.on('closed', () => {
     win = null;
   });
 }
 
 async function start() {
+  // 移除 Electron 默认应用菜单栏（File/Edit/View/Window/Help）
+  Menu.setApplicationMenu(null);
   await ensureBackend();
   ipcMain.handle('conn:get', () => connection);
   ipcMain.handle('backend:info', () => ({ external: externalBackend, ...connection }));
+  // 无框窗口（frame:false）的窗口控制，由渲染进程的自定义标题栏调用
+  ipcMain.handle('window:minimize', () => {
+    win?.minimize();
+  });
+  ipcMain.handle('window:toggle-maximize', () => {
+    if (!win) return false;
+    if (win.isMaximized()) win.unmaximize();
+    else win.maximize();
+    return win.isMaximized();
+  });
+  ipcMain.handle('window:close', () => {
+    win?.close();
+  });
+  ipcMain.handle('window:is-maximized', () => Boolean(win?.isMaximized()));
+  // 用系统默认程序打开文件 / 打开所在文件夹并定位（供对话窗口的「文件快捷操作」使用）
+  ipcMain.handle('shell:open-path', async (_e, target) => {
+    if (typeof target !== 'string' || !target) return { ok: false, error: 'invalid path' };
+    const err = await shell.openPath(target);
+    return { ok: !err, error: err || null };
+  });
+  ipcMain.handle('shell:show-item-in-folder', (_e, target) => {
+    if (typeof target !== 'string' || !target) return { ok: false, error: 'invalid path' };
+    shell.showItemInFolder(target);
+    return { ok: true };
+  });
   createWindow();
 }
 

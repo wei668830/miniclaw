@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { apiGet, apiPost, apiPatch, streamChat } from '../api/client';
+import { apiGet, apiPost, apiPatch, apiDelete, streamChat } from '../api/client';
 import type { BalanceInfo, ChatStreamEvent, ConfigPayload, ContextInfo, SessionInfo, SkillItem, UsageInfo } from '../api/types';
 
 export interface UIToolCall {
@@ -29,6 +29,7 @@ interface AppState {
   ready: boolean;
   statusText: string;
   sessions: SessionInfo[];
+  sessionsLimit: number;
   currentSessionId: string | null;
   messages: UIMessage[];
   streaming: boolean;
@@ -41,7 +42,8 @@ interface AppState {
   abortController: AbortController | null;
 
   init: () => Promise<void>;
-  refreshSessions: () => Promise<void>;
+  refreshSessions: (limit?: number) => Promise<void>;
+  loadMoreSessions: () => Promise<void>;
   refreshSkills: () => Promise<void>;
   refreshConfig: () => Promise<void>;
   refreshContext: () => Promise<void>;
@@ -49,6 +51,7 @@ interface AppState {
   refreshBalance: () => Promise<void>;
   createSession: () => Promise<void>;
   activateSession: (id: string) => Promise<void>;
+  deleteSession: (id: string) => Promise<void>;
   loadSkills: (names: string[]) => Promise<{ pending: string[]; already_loaded: string[] }>;
   sendMessage: (text: string) => Promise<void>;
   stopStream: () => void;
@@ -62,6 +65,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   ready: false,
   statusText: '就绪',
   sessions: [],
+  sessionsLimit: 50,
   currentSessionId: null,
   messages: [],
   streaming: false,
@@ -95,9 +99,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  refreshSessions: async () => {
-    const data = await apiGet<{ sessions: SessionInfo[]; current_session_id: string | null }>('/api/sessions');
+  refreshSessions: async (limit?: number) => {
+    const lim = limit ?? get().sessionsLimit;
+    const data = await apiGet<{ sessions: SessionInfo[]; current_session_id: string | null }>(
+      `/api/sessions?limit=${lim}`
+    );
     set({ sessions: data.sessions, currentSessionId: data.current_session_id });
+  },
+
+  loadMoreSessions: async () => {
+    const next = get().sessionsLimit + 50;
+    set({ sessionsLimit: next });
+    await get().refreshSessions(next);
   },
 
   refreshSkills: async () => {
@@ -175,6 +188,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     await get().refreshSessions();
     await get().refreshUsage();
     await get().refreshBalance();
+  },
+
+  deleteSession: async (id: string) => {
+    if (get().streaming) return;
+    await apiDelete(`/api/sessions/${id}`);
+    const wasCurrent = id === get().currentSessionId;
+    await get().refreshSessions();
+    if (wasCurrent) {
+      // 删除的是当前会话：切到剩余首个，没有则新建
+      const remaining = get().sessions[0];
+      if (remaining) {
+        await get().activateSession(remaining.session_id);
+      } else {
+        await get().createSession();
+      }
+    }
   },
 
   loadSkills: async (names: string[]) => {
@@ -325,42 +354,69 @@ export function cleanUserText(content: string): string {
   return text.trim();
 }
 
-// 把后端历史消息映射为 UI 消息（过滤 system、合并 reasoning/tool）
+// 把后端历史消息映射为 UI 消息。
+// 过滤 system；并按「用户轮次」把连续的 assistant / tool 消息合并为同一个 UI 消息，
+// 与实时流式「一轮一个气泡」的展示保持一致，避免历史回放时出现大量零散小气泡。
 function mapHistory(messages: any[]): UIMessage[] {
   const out: UIMessage[] = [];
+  let acc: { id: string; reasoning: string[]; content: string[]; toolCalls: UIToolCall[] } | null = null;
+
+  const flush = () => {
+    if (!acc) return;
+    const reasoning = acc.reasoning.join('\n\n').trim();
+    const content = acc.content.join('\n\n').trim();
+    if (reasoning || content || acc.toolCalls.length) {
+      out.push({
+        id: acc.id,
+        role: 'assistant',
+        content,
+        reasoning: reasoning || undefined,
+        toolCalls: acc.toolCalls.length ? acc.toolCalls : undefined,
+      });
+    }
+    acc = null;
+  };
+
   for (const m of messages) {
     const role = m.role;
     if (role === 'system') continue;
+
     if (role === 'user') {
+      flush();
       const text = cleanUserText(typeof m.content === 'string' ? m.content : '');
       if (text) out.push({ id: uid(), role: 'user', content: text });
       continue;
     }
+
     if (role === 'assistant') {
-      if (m.tool_calls) {
-        out.push({
-          id: uid(),
-          role: 'assistant',
-          content: m.content || '',
-          toolCalls: (m.tool_calls || []).map((tc: any) => ({
-            id: tc.id,
-            name: tc.function?.name,
-            args: tc.function?.arguments,
-            status: 'done' as const,
-          })),
+      if (!acc) acc = { id: uid(), reasoning: [], content: [], toolCalls: [] };
+      if (typeof m.reasoning_content === 'string' && m.reasoning_content.trim()) {
+        acc.reasoning.push(m.reasoning_content.trim());
+      }
+      if (typeof m.content === 'string' && m.content.trim()) {
+        acc.content.push(m.content.trim());
+      }
+      for (const tc of m.tool_calls || []) {
+        acc.toolCalls.push({
+          id: tc.id,
+          name: tc.function?.name,
+          args: tc.function?.arguments,
+          status: 'done' as const,
         });
-      } else if (typeof m.content === 'string' && m.content) {
-        out.push({ id: uid(), role: 'assistant', content: m.content, reasoning: m.reasoning_content });
       }
       continue;
     }
+
     if (role === 'tool') {
-      const last = out[out.length - 1];
-      if (last && last.role === 'assistant' && last.toolCalls?.length) {
-        const tc = last.toolCalls.find((t) => t.status === 'done' && t.result === undefined) || last.toolCalls[last.toolCalls.length - 1];
+      if (acc && acc.toolCalls.length) {
+        const tc =
+          acc.toolCalls.find((t) => t.id === m.tool_call_id && t.result === undefined) ||
+          acc.toolCalls[acc.toolCalls.length - 1];
         if (tc) tc.result = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
       }
     }
   }
+
+  flush();
   return out;
 }

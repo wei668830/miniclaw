@@ -12,14 +12,18 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"], dependencies=[Depe
 
 
 @router.get("")
-async def list_sessions(limit: int = 10):
-    """GET /api/sessions：列出最近会话及当前会话 ID。
+async def list_sessions(limit: int = 10, offset: int = 0):
+    """GET /api/sessions：列出会话及当前会话 ID（支持 limit/offset 分页）。
 
     :param limit: 返回的最大条数
+    :param offset: 起始偏移（用于「加载更多」）
     :return: 含 sessions 列表与 current_session_id 的字典
     """
     sm = get_session_manager()
-    return {"sessions": sm.list_sessions(limit=limit), "current_session_id": sm.current().session_id if sm.current() else None}
+    return {
+        "sessions": sm.list_sessions(limit=limit, offset=offset),
+        "current_session_id": sm.current().session_id if sm.current() else None,
+    }
 
 
 @router.post("")
@@ -113,6 +117,22 @@ async def export_session(session_id: str):
         elif msg.get("tool_calls"):
             lines.append(f"\n## {role} (tool_calls)\n\n{msg.get('tool_calls')}\n")
     return "".join(lines)
+
+
+@router.delete("/{session_id}")
+async def delete_session(session_id: str):
+    """DELETE /api/sessions/{session_id}：删除会话（内存 + 磁盘历史 + 索引）。
+
+    :param session_id: 会话 ID
+    :return: 含 session_id、deleted 与当前会话 ID 的字典
+    """
+    sm = get_session_manager()
+    deleted = sm.delete(session_id)
+    return {
+        "session_id": session_id,
+        "deleted": deleted,
+        "current_session_id": sm.current().session_id if sm.current() else None,
+    }
 
 
 __all__ = ["router"]

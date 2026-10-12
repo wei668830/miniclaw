@@ -12,6 +12,7 @@ from pathlib import Path
 from loguru import logger
 
 from ..constant import DEFAULT_MEMORY_RAW_DIR, EnvVarLoader
+from .session_index import session_index
 
 
 class HistoryStore:
@@ -39,6 +40,11 @@ class HistoryStore:
             with open(self.path, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
                 f.flush()
+            # 写透维护会话轻量索引（列表用，避免整读 JSONL）
+            try:
+                session_index.update_on_append(self.session_id, msg)
+            except Exception:
+                logger.opt(exception=True).debug("更新会话索引失败")
         except Exception as e:
             logger.opt(exception=True).warning(f'会话历史写入失败 session={self.session_id}: {e}')
 

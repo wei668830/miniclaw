@@ -243,6 +243,11 @@ frontend/*.exe
 frontend/*.zip
 frontend/*.tar.gz
 
+# 图标资源目录（electron-builder 的 buildResources）：属源码级资源，应纳入版本管理。
+# 需对全局 `build/` 规则（见文件第 15 行）显式反忽略，否则 frontend/build/ 会被忽略。
+!frontend/build/
+!frontend/build/**
+
 # 注：以下文件**建议提交**，故不忽略
 #   frontend/package.json
 #   frontend/package-lock.json

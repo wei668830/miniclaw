@@ -1,14 +1,21 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { cleanUserText } from '../../store/appStore';
+import { cleanUserText, useAppStore } from '../../store/appStore';
 import type { UIMessage } from '../../store/appStore';
 import { ToolCallCard } from './ToolCallCard';
+import { ChoiceOptions } from './ChoiceOptions';
+import { parseChoice } from './choice';
 
 const TASK_DONE_TOKEN = '【TASK_DONE】';
 
-export const MessageItem: React.FC<{ message: UIMessage }> = ({ message }) => {
+export const MessageItem: React.FC<{ message: UIMessage; answeredValue?: string | null }> = ({
+  message,
+  answeredValue = null,
+}) => {
   const { role } = message;
+  const sendMessage = useAppStore((s) => s.sendMessage);
+  const streaming = useAppStore((s) => s.streaming);
 
   if (role === 'system') {
     return <div className="msg system">{message.content}</div>;
@@ -28,7 +35,8 @@ export const MessageItem: React.FC<{ message: UIMessage }> = ({ message }) => {
   }
 
   const done = message.content.includes(TASK_DONE_TOKEN);
-  const content = message.content.replace(TASK_DONE_TOKEN, '').trim();
+  const withoutToken = message.content.replace(TASK_DONE_TOKEN, '').trim();
+  const { text: content, options } = parseChoice(withoutToken);
 
   return (
     <div className="msg-row assistant">
@@ -39,6 +47,14 @@ export const MessageItem: React.FC<{ message: UIMessage }> = ({ message }) => {
           <div className="content markdown">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           </div>
+        )}
+        {options.length > 0 && (
+          <ChoiceOptions
+            options={options}
+            disabled={streaming}
+            answeredValue={answeredValue}
+            onChoose={(value) => sendMessage(value)}
+          />
         )}
         {message.streaming && !content && (!message.toolCalls || message.toolCalls.length === 0) && (
           <div className="typing">思考中…</div>

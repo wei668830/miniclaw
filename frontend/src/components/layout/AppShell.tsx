@@ -4,6 +4,7 @@ import { ChatPanel } from '../chat/ChatPanel';
 import { SkillPanel } from '../skill/SkillPanel';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { StatusBar } from '../common/StatusBar';
+import { TitleBar } from './TitleBar';
 
 export const AppShell: React.FC = () => {
   const [rightOpen, setRightOpen] = useState(false);
@@ -11,6 +12,7 @@ export const AppShell: React.FC = () => {
 
   return (
     <div className="app-shell">
+      <TitleBar />
       <div className="app-body">
         <SessionSidebar />
         <main className="main-area">

@@ -22,7 +22,7 @@ from ..agents import get_llm_client, llm_tools_manager
 from ..agents.base_llm_client import ToolResponse
 from ..agents.llm_configurator import LLMConfigurator
 from ..cli.history_store import HistoryStore
-from ..cli.stream_runner import _sanitize_messages, _should_keep_reasoning
+from ..cli.stream_runner import _execute_tool_call, _sanitize_messages, _should_keep_reasoning
 from ..constant import (
     AGENT_AUTONOMY_PROMPT,
     DEFAULT_MAX_TOOL_ITERATIONS,
@@ -50,6 +50,19 @@ SHORT_SYSTEM_PROMPT = (
     "请严格遵守用户消息中【系统指令】部分的要求。"
 )
 DEFAULT_SYSTEM_PROMPT = "你是一个人工智能助手，协助用户完成各种任务。"
+
+# UI 专用指令：约定「交互确认选项块」，供前端解析为可点击按钮（见 design/electron-gui/07-界面优化.md 9.4.1）
+UI_CHOICE_INSTRUCTION = (
+    "当需要用户确认或做选择时，请在回复末尾追加一个语言标记为 choice 的 Markdown 代码块，"
+    "代码块内每行一个选项；选项行文本既是按钮文案，也是点击后发送的内容。"
+    "如需区分短标签与较长回复，可使用 `标签 :: 发送内容` 的形式。示例如下：\n"
+    "```choice\n"
+    "继续 :: 确认，请按当前方案继续执行\n"
+    "调整 :: 请先按我的意见调整，调整点是：\n"
+    "取消 :: 先不执行该步骤\n"
+    "```\n"
+    "仅在确实需要用户确认/选择时使用该代码块，其余情况不要输出。"
+)
 
 # 工具结果回传给模型时的文本上限（字符），避免单条过长撑爆上下文
 _TOOL_RESULT_MAX_CHARS = 20000
@@ -175,6 +188,8 @@ class ChatSession:
             autonomy_prompt = EnvVarLoader.get_str("CHAT_AGENT_AUTONOMY_PROMPT", AGENT_AUTONOMY_PROMPT)
             if autonomy_prompt:
                 system_prompt = f"{system_prompt}\n\n{autonomy_prompt}"
+        # UI 专用：约定「交互确认选项块」，前端据此渲染可点击选项（不影响 CLI）
+        system_prompt = f"{system_prompt}\n\n{UI_CHOICE_INSTRUCTION}"
         return system_prompt
 
     def _build_request_messages(self) -> List[dict]:
@@ -458,8 +473,22 @@ class ChatSession:
                             tool_name = function_obj.get("name")
                             yield {"event": "tool_call", "data": tool_call_obj}
 
-                            tool_response = await llm_tools_manager.execute_tool(
-                                tool_name, function_obj.get("arguments")
+                            # 统一复用 stream_runner 的工具分发逻辑：特殊工具
+                            # （计划器 make_plans / 子代理 subtask_executor）在注册表中
+                            # invoke 为 None，必须在此特判执行，否则直接调用
+                            # llm_tools_manager.execute_tool 会触发
+                            # 'NoneType' object is not callable。
+                            normalized_function_obj = {
+                                "name": tool_name,
+                                "arguments": function_obj.get("arguments") or "{}",
+                            }
+                            tool_response = await _execute_tool_call(
+                                normalized_function_obj,
+                                llm_tools_manager=llm_tools_manager,
+                                model=self.model,
+                                base_url=self.base_url,
+                                api_key=self.api_key,
+                                custom_llm_provider=self.custom_llm_provider,
                             )
                             result_text = _tool_response_to_text(tool_response)
                             self._append_message(

@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useAppStore } from './store/appStore';
 import { AppShell } from './components/layout/AppShell';
+import logo from './assets/logo.png';
 
 const App: React.FC = () => {
   const ready = useAppStore((s) => s.ready);
@@ -14,6 +15,7 @@ const App: React.FC = () => {
   if (!ready) {
     return (
       <div className="loading-screen">
+        <img className="loading-logo" src={logo} alt="MiniClaw" />
         <div className="loading-title">MiniClaw</div>
         <div className="loading-text">{statusText}</div>
       </div>
