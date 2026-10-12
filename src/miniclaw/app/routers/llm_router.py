@@ -7,16 +7,21 @@
 import json
 from typing import Any, AsyncIterator
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from ..deps import require_token
 from ..llm_chat_context import store_chat_context, fetch_chat_context
 from ...agents import get_llm_client
 from ...agents.llm_tools_manager import llm_tools_manager
 
-router = APIRouter(prefix="/api/llm", tags=["llm"])
+router = APIRouter(
+    prefix="/api/llm",
+    tags=["llm"],
+    dependencies=[Depends(require_token)],
+)
 
 
 class ChatRequest(BaseModel):
