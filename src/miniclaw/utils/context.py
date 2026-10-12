@@ -253,13 +253,15 @@ def get_context_budget() -> tuple[int, int, int]:
         return soft, hard, window
 
 
-def check_budget(messages) -> tuple[str, int, int]:
+def check_budget(messages, extra_tokens: int = 0) -> tuple[str, int, int]:
     """判定消息列表的预算等级。
 
     返回 (level, used, limit)：level ∈ {"ok", "soft", "hard"}。
     used > hard → hard；used > soft → soft；否则 ok。limit 为 hard 阈值。
+
+    ``extra_tokens`` 用于计入「不落盘、请求时注入」的额外内容（如系统提示词）的 token 占用。
     """
-    used = estimate_messages_tokens(messages)
+    used = estimate_messages_tokens(messages) + int(extra_tokens or 0)
     soft, hard, window = get_context_budget()
     if used > hard:
         level = "hard"

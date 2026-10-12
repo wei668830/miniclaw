@@ -93,6 +93,10 @@ class StreamResult:
     content: str = ""
     reasoning: str = ""
     error: Optional[str] = None
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    cost_usd: Optional[float] = None
 
 
 async def _execute_tool_call(
@@ -455,7 +459,13 @@ async def run_stream_round(
                 logger.debug(f"{log_prefix}调用工具 {fn_name} 参数: {fn_args}")
                 logger.debug(f"{log_prefix}工具 {fn_name} 响应: {tool_response}")
                 logger.debug(f"{log_prefix}工具调用结果已添加到消息历史，继续对话")
-                return StreamResult(tool_called=True)
+                return StreamResult(
+                    tool_called=True,
+                    prompt_tokens=chunk.prompt_tokens,
+                    completion_tokens=chunk.completion_tokens,
+                    total_tokens=chunk.total_tokens,
+                    cost_usd=chunk.cost_usd,
+                )
 
             # 纯文本收尾
             final_content = collected_content
@@ -473,7 +483,14 @@ async def run_stream_round(
                 f"{log_prefix}大模型响应的消息：\n【content】:{final_content}\n\n"
                 f"【reasoning_content:{collected_reasoning}】"
             )
-            return StreamResult(content=final_content, reasoning=collected_reasoning)
+            return StreamResult(
+                content=final_content,
+                reasoning=collected_reasoning,
+                prompt_tokens=chunk.prompt_tokens,
+                completion_tokens=chunk.completion_tokens,
+                total_tokens=chunk.total_tokens,
+                cost_usd=chunk.cost_usd,
+            )
 
     # 流意外结束（未收到 finish）：尽力把已产出的内容落屏
     _flush_reasoning()

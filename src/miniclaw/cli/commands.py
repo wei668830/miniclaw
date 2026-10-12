@@ -90,6 +90,16 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "_cmd_context",
     ),
     CommandSpec(
+        "cost", "查看本次对话费用（官方口径）",
+        "/cost 查看本次对话官方花费（余额差值，含缓存命中折扣）与 token 用量",
+        "_cmd_cost",
+    ),
+    CommandSpec(
+        "balance", "查询账户余额（官方）",
+        "/balance 查询 DeepSeek 账户可用余额",
+        "_cmd_balance",
+    ),
+    CommandSpec(
         "session-list", "列出最近的会话",
         "/session-list N 查看最近 N 个会话（默认 10，* 标记当前会话）",
         "_cmd_session_list",

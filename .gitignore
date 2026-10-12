@@ -219,3 +219,34 @@ browser/
 # 运行时文件
 .miniclaw/
 milvus_lite.db/
+# ===========================================================================
+# 前端工程（frontend/，Electron + Vite + React）
+# 说明：下方部分规则与上文全局规则（node_modules/、dist/、build/）重叠，
+#       此处显式列出以保证可读性与自解释性。
+# ===========================================================================
+# 依赖
+frontend/node_modules/
+# 构建产物
+frontend/dist/
+frontend/dist-electron/
+frontend/out/
+frontend/release/
+# 缓存
+frontend/.vite/
+frontend/coverage/
+frontend/*.tsbuildinfo
+frontend/.eslintcache
+# 打包产物（electron-builder）
+frontend/*.AppImage
+frontend/*.dmg
+frontend/*.exe
+frontend/*.zip
+frontend/*.tar.gz
+
+# 注：以下文件**建议提交**，故不忽略
+#   frontend/package.json
+#   frontend/package-lock.json
+#   frontend/electron/**、frontend/src/**、配置文件
+
+# 工具生成的临时截图
+desktop_screenshot_*.png

@@ -1,9 +1,13 @@
 import re
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import List, Tuple
 
 import yaml
+
+from ..constant import EnvVarLoader
 
 
 def clip(s: str, max_len: int = 30) -> str:
@@ -102,9 +106,66 @@ def merge_system_prompt_into_user(system_prompt: str, user_input: str) -> str:
     )
 
 
-if __name__ == "__main__":
-    skills_dir = Path("~/.miniclaw/skills").expanduser().resolve()
-    src_skills_dir = Path(__file__).parent.parent / "agents" / "skills"
-    print(src_skills_dir)
-    # if not os.path.exists(skills_dir):
-    #     shutil.copytree(skills_dir, skills_dir, dirs_exist_ok=True)
+def get_skills_dir() -> Path:
+    """返回技能根目录（可由 MINICLAW_SKILLS_DIR 覆盖，默认 ~/.miniclaw/skills）。"""
+    return Path(
+        EnvVarLoader.get_str("MINICLAW_SKILLS_DIR", "~/.miniclaw/skills")
+    ).expanduser().resolve()
+
+
+def scan_skills(skills_dir_path: Path | None = None) -> List[Tuple[str, str, Path]]:
+    """扫描技能目录，返回 ``[(name, description, skill_dir), ...]``。
+
+    - 技能 = 一级子目录下的 ``SKILL.md``（含 YAML frontmatter 的 ``name`` / ``description``）；
+    - 首次运行若技能目录不存在，则从内置 ``agents/skills`` 复制一份；
+    - CLI 与 Web 后端共用本函数，保证「单一事实来源」。
+    """
+    skills_dir = (skills_dir_path or get_skills_dir()).expanduser().resolve()
+    if not skills_dir.exists():
+        src_skills_dir = Path(__file__).parent.parent / "agents" / "skills"
+        try:
+            shutil.copytree(src_skills_dir, skills_dir, dirs_exist_ok=True)
+        except Exception:
+            # 复制失败（权限等）不阻断后续扫描
+            pass
+
+    skills: List[Tuple[str, str, Path]] = []
+    if not skills_dir.exists():
+        return skills
+
+    for skill_dir in sorted(skills_dir.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        skill_md = skill_dir / "SKILL.md"
+        if not skill_md.exists():
+            continue
+        try:
+            content = skill_md.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        frontmatter = extract_yaml_frontmatter(content)
+        if frontmatter and frontmatter.get("name") is not None and frontmatter.get("description") is not None:
+            skills.append((frontmatter["name"], frontmatter["description"], skill_dir))
+    return skills
+
+
+def build_skill_injection(user_input: str, skills: List[Tuple[str, str, Path]]) -> str:
+    """把若干技能的 ``SKILL.md`` 全文拼接进用户输入文本（对话式技能注入）。
+
+    与 CLI ``CommandLineInteraction._append_user_message`` 保持完全一致的拼接格式：
+    技能指引以文本形式并入**用户消息**，而非改动 system prompt。
+    """
+    text = (user_input or "").strip()
+    for (name, _description, skill_dir) in skills:
+        skill_md = Path(skill_dir) / "SKILL.md"
+        if not skill_md.exists():
+            continue
+        try:
+            content = skill_md.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        text += (
+            f"\n\n**【技能名称：{name}，技能文件夹路径：{str(skill_dir)}，技能指引如下】：**\n\n"
+            f"{content}\n\n"
+        )
+    return text

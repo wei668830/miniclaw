@@ -34,11 +34,12 @@ from ..constant import (
     DEFAULT_TASK_DONE_TOKEN,
     EnvVarLoader,
 )
-from ..utils.common import clip, dt_uuid, extract_yaml_frontmatter, masking_str, merge_system_prompt_into_user
+from ..utils.common import clip, dt_uuid, extract_yaml_frontmatter, masking_str, merge_system_prompt_into_user, scan_skills
 from ..utils.context import (
     check_budget,
     clear_budget_overrides,
     estimate_messages_tokens,
+    estimate_text_tokens,
     get_budget_overrides,
     get_context_budget,
     set_budget_override,
@@ -141,6 +142,18 @@ class CommandLineInteraction:
         self._last_summary = None
         self._last_tail = []
 
+        # 本次对话累计用量/费用（供 /cost 查看）
+        self.usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "cost_usd": 0.0,
+            "turns": 0,
+        }
+        # 官方余额基线（用于按余额差值计算会话官方花费）
+        self._cost_baseline = None
+        self._cost_currency = None
+
         # 显示欢迎信息
         console.print()
         console.print(MINICLAW_LOG)
@@ -189,16 +202,8 @@ class CommandLineInteraction:
 
         self.skills_loaded.clear()
 
-    def _compose_user_content(self, user_input: str) -> str:
-        """构造用户消息内容
-
-        会话（或本轮上下文）中的首条用户消息里合并完整的系统提示词，
-        system 消息只保留简短指令，以规避部分大模型网关对 system 消息长度的限制。
-        agent 模式下额外注入自主执行提示词，驱动模型端到端自推进。
-        """
-        if any(m.get("role") == "user" for m in self.messages):
-            return user_input
-
+    def _effective_system_prompt(self) -> str:
+        """本次请求生效的系统提示词（agent 模式附带自主执行提示词）。"""
         system_prompt = self.system_prompt
         if self.runtime_mode == "agent":
             autonomy_prompt = EnvVarLoader.get_str(
@@ -206,8 +211,21 @@ class CommandLineInteraction:
             )
             if autonomy_prompt:
                 system_prompt = f"{system_prompt}\n\n{autonomy_prompt}"
+        return system_prompt
 
-        return merge_system_prompt_into_user(system_prompt, user_input)
+    def _build_request_messages(self) -> list:
+        """构造发送给模型的请求消息（副本）。
+
+        系统提示词**不写入历史（jsonl）**：在此把完整系统提示词注入到「第一条用户消息」，
+        每次请求按需重组；system 消息仍只保留简短指令（规避网关对 system 长度的限制）。
+        """
+        messages = [dict(m) for m in self.messages]
+        system_prompt = self._effective_system_prompt()
+        for msg in messages:
+            if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                msg["content"] = merge_system_prompt_into_user(system_prompt, msg["content"])
+                break
+        return messages
 
     def _append_message(self, message: dict):
         """将消息追加到内存上下文，同时持久化到会话历史（外部记忆）"""
@@ -276,7 +294,9 @@ class CommandLineInteraction:
         任一分支均不抛出异常。
         """
         try:
-            level, used, limit = check_budget(self.messages)
+            level, used, limit = check_budget(
+                self.messages, extra_tokens=estimate_text_tokens(self._effective_system_prompt())
+            )
             if force or level == "hard":
                 await self._condense_and_rebuild()
                 console.print(
@@ -364,27 +384,9 @@ class CommandLineInteraction:
 
 
     def _reload_skills(self):
-        skills_dir = Path(
-            EnvVarLoader.get_str("MINICLAW_SKILLS_DIR", "~/.miniclaw/skills")).expanduser().resolve()
-        if not skills_dir.exists():
-            src_skills_dir = Path(__file__).parent.parent / "agents" / "skills"
-            shutil.copytree(src_skills_dir, skills_dir, dirs_exist_ok=True)
-
-        # 收集所有一级文件夹中的 SKILL.md
+        """扫描技能目录，刷新 self.skills（与 Web 后端共用 scan_skills）。"""
         self.skills.clear()
-        for skill_dir in skills_dir.iterdir():
-            if skill_dir.is_dir():
-                skill_md = skill_dir / "SKILL.md"
-                if skill_md.exists():
-                    with open(skill_md, 'r', encoding='utf-8') as f:
-                        content = f.read()
-
-                    frontmatter = extract_yaml_frontmatter(content)
-                    if frontmatter and frontmatter.get("name") is not None and frontmatter.get(
-                            "description") is not None:
-                        name = frontmatter.get('name')
-                        description = frontmatter.get('description')
-                        self.skills.append((name, description, skill_dir))
+        self.skills.extend(scan_skills())
 
     def _history_raw_dir(self) -> Path:
         return Path(
@@ -520,7 +522,9 @@ class CommandLineInteraction:
     def _print_context_status(self):
         """打印上下文状态表格。"""
         soft, hard, window = get_context_budget()
-        level, used, limit = check_budget(self.messages)
+        level, used, limit = check_budget(
+            self.messages, extra_tokens=estimate_text_tokens(self._effective_system_prompt())
+        )
         stats = self.history_store.stats()
         overrides = get_budget_overrides()
         table = Table(title="上下文状态", style="cyan")
@@ -939,6 +943,70 @@ class CommandLineInteraction:
         except Exception as e:
             console.print(f"[red]❌ 加载技能失败: {escape(str(e))}[/red]")
 
+    def _accumulate_usage(self, result) -> None:
+        """累计一次 LLM 调用的 token 与费用（供 /cost 查看）。"""
+        if result is None:
+            return
+        self.usage["prompt_tokens"] += int(result.prompt_tokens or 0)
+        self.usage["completion_tokens"] += int(result.completion_tokens or 0)
+        self.usage["total_tokens"] += int(result.total_tokens or 0)
+        self.usage["cost_usd"] += float(result.cost_usd or 0.0)
+        self.usage["turns"] += 1
+
+    async def _ensure_cost_baseline(self):
+        """首次对话前记录官方余额基线（失败静默，不影响对话）。"""
+        if self._cost_baseline is not None:
+            return
+        try:
+            from ..utils.balance import fetch_balance
+            info = await fetch_balance(self.base_url or "", self.api_key or "")
+            if info.get("ok"):
+                self._cost_baseline = info.get("total_balance")
+                self._cost_currency = info.get("currency")
+        except Exception:
+            pass
+
+    def _format_usage(self) -> str:
+        u = self.usage
+        return (
+            "本次对话累计 token 用量：\n"
+            f"- 调用轮数: {u['turns']}\n"
+            f"- 输入 tokens: {u['prompt_tokens']}\n"
+            f"- 输出 tokens: {u['completion_tokens']}\n"
+            f"- 合计 tokens: {u['total_tokens']}"
+        )
+
+    async def _cmd_balance(self, arg: str | None):
+        """处理 /balance 命令：查询官方账户余额。"""
+        from ..utils.balance import fetch_balance
+        info = await fetch_balance(self.base_url or "", self.api_key or "")
+        if not info.get("ok"):
+            console.print(f"[red]❌ 余额查询失败: {escape(str(info.get('error')))}[/red]")
+            return
+        console.print(
+            f"[green]账户可用余额（{info.get('currency')}）: {info.get('total_balance')}"
+            f"｜赠金 {info.get('granted_balance')}｜充值 {info.get('topped_up_balance')}"
+            f"｜可用: {info.get('is_available')}[/green]"
+        )
+
+    async def _cmd_cost(self, arg: str | None):
+        """处理 /cost 命令：查看本次对话官方花费（余额差值）与 token 用量。"""
+        from ..utils.balance import fetch_balance
+        info = await fetch_balance(self.base_url or "", self.api_key or "")
+        lines = [self._format_usage()]
+        if info.get("ok"):
+            current = info.get("total_balance")
+            if self._cost_baseline is None:
+                self._cost_baseline = current
+            spent = None
+            if current is not None and self._cost_baseline is not None:
+                spent = round(self._cost_baseline - current, 6)
+            lines.append(f"- 会话官方花费: {spent} {info.get('currency')}（余额差值，含缓存命中折扣）")
+            lines.append(f"- 当前余额: {current} {info.get('currency')}")
+        else:
+            lines.append(f"- 官方花费查询失败: {info.get('error')}")
+        console.print(f"[green]{escape(chr(10).join(lines))}[/green]")
+
     def _cmd_model(self, arg: str | None):
         """处理 /model 命令。"""
         if arg is None:
@@ -1091,9 +1159,10 @@ class CommandLineInteraction:
             # 清空预加载技能列表
             self.skills_preload.clear()
 
-            self._append_message({"role": "user", "content": self._compose_user_content(user_input_with_skills)})
+            # 不落盘系统提示词：仅写入原始用户输入（含技能注入）
+            self._append_message({"role": "user", "content": user_input_with_skills})
         else:
-            self._append_message({"role": "user", "content": self._compose_user_content(user_input)})
+            self._append_message({"role": "user", "content": user_input})
 
     def _refresh_active_plan(self, tool_name: str):
         """计划器执行后刷新活跃计划路径。"""
@@ -1104,6 +1173,9 @@ class CommandLineInteraction:
         """处理用户输入并流式显示 LLM 响应（统一流式循环，见 stream_runner）。"""
         if append_user_message:
             self._append_user_message(user_input)
+
+        # 记录官方余额基线（用于 /cost 计算会话官方花费）
+        await self._ensure_cost_baseline()
 
         # 连续工具调用轮次计数（安全网，防死循环）
         tool_iterations = 0
@@ -1119,7 +1191,7 @@ class CommandLineInteraction:
 
                 result = await run_stream_round(
                     client=self.client,
-                    messages=self.messages,
+                    messages=self._build_request_messages(),
                     tools=self.tools if self.runtime_mode == "agent" else None,
                     model=self.model,
                     base_url=self.base_url,
@@ -1133,6 +1205,8 @@ class CommandLineInteraction:
                     on_tool_call=self._refresh_active_plan,
                     **self._sampling_kwargs(),
                 )
+
+                self._accumulate_usage(result)
 
                 if result.error:
                     return

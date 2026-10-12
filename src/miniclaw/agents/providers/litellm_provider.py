@@ -1,3 +1,4 @@
+import os
 from typing import AsyncIterator, Optional
 
 import httpx
@@ -25,6 +26,74 @@ def _root_cause(e: Exception) -> Optional[Exception]:
             return None if current is e else current
         seen.add(id(nxt))
         current = nxt
+
+
+# 内置兜底单价（USD / 每百万 token）。
+# 当 litellm 价格表未覆盖某模型时，按「厂商前缀」匹配兜底单价（可被环境变量覆盖）。
+# 参考 DeepSeek 官方标准价（缓存未命中）：deepseek-chat 输入 ≈ $0.27 / 输出 ≈ $1.10。
+_BUILTIN_FALLBACK_PRICES = {
+    "deepseek": {"input": 0.27, "output": 1.10},
+}
+
+
+def _cost_from_env(prompt_tokens: int, completion_tokens: int) -> Optional[float]:
+    """环境变量兜底单价（优先级最高）：``MINICLAW_COST_INPUT_PER_1M`` / ``..._OUTPUT_PER_1M``。"""
+    try:
+        in_price = float(os.environ.get("MINICLAW_COST_INPUT_PER_1M", "0") or 0)
+        out_price = float(os.environ.get("MINICLAW_COST_OUTPUT_PER_1M", "0") or 0)
+    except (TypeError, ValueError):
+        return None
+    if in_price == 0 and out_price == 0:
+        return None
+    return prompt_tokens / 1_000_000 * in_price + completion_tokens / 1_000_000 * out_price
+
+
+def _fallback_cost(model: str, prompt_tokens: int, completion_tokens: int) -> Optional[float]:
+    """litellm 价格表未覆盖时的兜底计价：先环境变量，再按厂商内置单价。"""
+    env_cost = _cost_from_env(prompt_tokens, completion_tokens)
+    if env_cost is not None:
+        return env_cost
+    vendor = (model or "").split("/")[0].strip().lower()
+    price = _BUILTIN_FALLBACK_PRICES.get(vendor)
+    if price:
+        return prompt_tokens / 1_000_000 * price["input"] + completion_tokens / 1_000_000 * price["output"]
+    return None
+
+
+def _compute_cost(model: str, prompt_tokens: Optional[int], completion_tokens: Optional[int]) -> Optional[float]:
+    """依据 litellm 价格表计算费用；未覆盖时回退到环境变量 / 厂商内置单价。"""
+    pt = prompt_tokens or 0
+    ct = completion_tokens or 0
+    try:
+        prompt_cost, completion_cost = litellm.cost_per_token(
+            model=model, prompt_tokens=pt, completion_tokens=ct
+        )
+        return float(prompt_cost) + float(completion_cost)
+    except Exception:
+        return _fallback_cost(model, pt, ct)
+
+
+def _compute_tokens_and_cost(model: str, messages: list, completion_text: str):
+    """估算 token 用量与费用。
+
+    不依赖网关是否在流式响应中返回 usage：优先由 litellm 的 token_counter 估算 token，
+    再由 cost_per_token 依据内置价格表计算费用（价格表未覆盖的模型返回 None）。
+    返回 ``(prompt_tokens, completion_tokens, total_tokens, cost_usd)``。
+    """
+    prompt_tokens = completion_tokens = total_tokens = None
+    cost_usd = None
+    try:
+        prompt_tokens = litellm.token_counter(model=model, messages=messages)
+    except Exception:
+        prompt_tokens = None
+    try:
+        completion_tokens = litellm.token_counter(model=model, text=completion_text or "")
+    except Exception:
+        completion_tokens = None
+    if prompt_tokens is not None and completion_tokens is not None:
+        total_tokens = prompt_tokens + completion_tokens
+        cost_usd = _compute_cost(model, prompt_tokens, completion_tokens)
+    return prompt_tokens, completion_tokens, total_tokens, cost_usd
 
 
 def _format_llm_error(e: Exception) -> str:
@@ -122,26 +191,25 @@ class LiteLLMClient(BaseLLMClient):
                         for tc in msg.tool_calls
                     ]
 
-            # pt, ct, tt = None, None, None
-            # if hasattr(response, "usage") and response.usage is not None:
-            #     pt = getattr(response.usage, "prompt_tokens", None)
-            #     ct = getattr(response.usage, "completion_tokens", None)
-            #     tt = getattr(response.usage, "total_tokens", None)
-            #
-            # cost = None
-            # try:
-            #     cost = completion_cost(response)
-            # except Exception:
-            #     pass
+            pt = ct = tt = None
+            cost_usd = None
+            usage_obj = getattr(response, "usage", None)
+            if usage_obj is not None and getattr(usage_obj, "prompt_tokens", None) is not None:
+                pt = getattr(usage_obj, "prompt_tokens", None)
+                ct = getattr(usage_obj, "completion_tokens", None)
+                tt = getattr(usage_obj, "total_tokens", None)
+                cost_usd = _compute_cost(params.get("model"), pt, ct)
+            else:
+                pt, ct, tt, cost_usd = _compute_tokens_and_cost(params.get("model"), messages, content)
 
             return LLMResponse(
                 content=content,
                 reasoning_content=reasoning_content,
                 tool_calls=tool_calls,
-                # prompt_tokens=pt,
-                # completion_tokens=ct,
-                # total_tokens=tt,
-                # cost_usd=cost
+                prompt_tokens=pt,
+                completion_tokens=ct,
+                total_tokens=tt,
+                cost_usd=cost_usd,
             )
 
         except Exception as e:
@@ -169,6 +237,7 @@ class LiteLLMClient(BaseLLMClient):
             tool_call_id = ""
             tool_name = ""
             tool_arguments = ""
+            completion_acc = ""
 
             response = await acompletion(**params)
             async for chunk in response:
@@ -211,16 +280,16 @@ class LiteLLMClient(BaseLLMClient):
                 # 核心修复：结束时强制计算 Token & Cost
                 # ------------------------------
                 if is_finish:
-                    prompt_tokens = None
-                    completion_tokens = None
-                    total_tokens = None
-                    cost_usd = None
-
-                    # 优先用模型返回的 usage（例如 OpenAI）
-                    # if hasattr(chunk, "usage") and chunk.usage is not None:
-                    #     prompt_tokens = getattr(chunk.usage, "prompt_tokens", None)
-                    #     completion_tokens = getattr(chunk.usage, "completion_tokens", None)
-                    #     total_tokens = getattr(chunk.usage, "total_tokens", None)
+                    # 优先使用网关返回的 usage；缺失时由 token_counter 估算 token，并用价格表计算费用
+                    usage_obj = getattr(chunk, "usage", None)
+                    if usage_obj is not None and getattr(usage_obj, "prompt_tokens", None) is not None:
+                        prompt_tokens = getattr(usage_obj, "prompt_tokens", None)
+                        completion_tokens = getattr(usage_obj, "completion_tokens", None)
+                        total_tokens = getattr(usage_obj, "total_tokens", None)
+                        cost_usd = _compute_cost(params.get("model"), prompt_tokens, completion_tokens)
+                    else:
+                        prompt_tokens, completion_tokens, total_tokens, cost_usd = \
+                            _compute_tokens_and_cost(params.get("model"), messages, completion_acc)
 
                     yield LLMStreamChunk(
                         delta=delta,
@@ -235,13 +304,14 @@ class LiteLLMClient(BaseLLMClient):
                         }] if finish_reason == "tool_calls" else None,
                         finish=True,
                         finish_reason= finish_reason,
-                        # prompt_tokens=prompt_tokens,
-                        # completion_tokens=completion_tokens,
-                        # total_tokens=total_tokens,
-                        # cost_usd=cost_usd
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                        cost_usd=cost_usd,
                     )
                 else:
                     if not is_tool_call:
+                        completion_acc += delta
                         yield LLMStreamChunk(
                             delta=delta,
                             delta_type=delta_type,
