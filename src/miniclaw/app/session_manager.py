@@ -103,6 +103,7 @@ class SessionManager:
                     stat = jsonl.stat()
                     updated_at = datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds")
                 except Exception:
+                    logger.opt(exception=True).debug('读取会话文件时间戳失败，按未知处理')
                     updated_at = None
                 store = HistoryStore(sid)
                 messages = store.load_all()

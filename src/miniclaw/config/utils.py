@@ -171,6 +171,7 @@ def _get_darwin_default_browser() -> Tuple[Optional[str], Optional[str]]:
         with open(plist_path, "rb") as f:
             data = plistlib.load(f)
     except (OSError, plistlib.InvalidFileException):
+        logger.debug("读取 macOS LaunchServices 配置失败", exc_info=True)
         return result
     handlers = data.get("LSHandlers") or data.get("LSHandler")
     if not isinstance(handlers, list):
@@ -209,6 +210,7 @@ def _get_win32_default_browser() -> Tuple[Optional[str], Optional[str]]:
     try:
         import winreg
     except ImportError:
+        logger.debug("winreg 不可用，无法探测 Windows 默认浏览器", exc_info=True)
         return (None, None)
     subkey = (
         r"Software\Microsoft\Windows\Shell\Associations"
@@ -224,6 +226,7 @@ def _get_win32_default_browser() -> Tuple[Optional[str], Optional[str]]:
         prog_id, _ = winreg.QueryValueEx(key, "ProgId")
         winreg.CloseKey(key)
     except OSError:
+        logger.debug("读取 Windows 默认浏览器注册表失败", exc_info=True)
         return (None, None)
     # ProgId -> (kind, path template). %1 is URL.
     prog_to_cmd: dict[str, Tuple[str, str]] = {
@@ -261,6 +264,7 @@ def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
         )
         desktop = (out.stdout or "").strip() if out.returncode == 0 else ""
     except (FileNotFoundError, subprocess.TimeoutExpired):
+        logger.debug("执行 xdg-mime 探测默认浏览器失败", exc_info=True)
         return (None, None)
     if not desktop:
         return (None, None)
@@ -287,6 +291,7 @@ def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
                                 )
                         break
         except OSError:
+            logger.debug("读取 Linux .desktop 文件失败", exc_info=True)
             continue
     return (None, None)
 
@@ -334,5 +339,6 @@ def is_running_in_container() -> bool:
             content = f.read()
             return "docker" in content or "kubepods" in content
     except (OSError, FileNotFoundError):
+        logger.debug("读取 /proc/1/cgroup 失败，视为非容器环境", exc_info=True)
         return False
 

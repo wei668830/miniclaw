@@ -33,7 +33,7 @@ def save_active_plan(plan_path: str, session_id: str | None = None, title: str |
         with open(ACTIVE_PLAN_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
     except Exception as e:
-        logger.warning(f"活跃计划登记写入失败 {ACTIVE_PLAN_FILE}: {e}")
+        logger.opt(exception=True).warning(f'活跃计划登记写入失败 {ACTIVE_PLAN_FILE}: {e}')
 
 
 def load_active_plan() -> str | None:
@@ -44,7 +44,7 @@ def load_active_plan() -> str | None:
         with open(ACTIVE_PLAN_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        logger.warning(f"活跃计划登记读取失败 {ACTIVE_PLAN_FILE}: {e}")
+        logger.opt(exception=True).warning(f'活跃计划登记读取失败 {ACTIVE_PLAN_FILE}: {e}')
         return None
 
     plan_path = data.get("plan_path") if isinstance(data, dict) else None
@@ -63,4 +63,4 @@ def clear_active_plan() -> None:
         if ACTIVE_PLAN_FILE.exists():
             ACTIVE_PLAN_FILE.unlink()
     except Exception as e:
-        logger.warning(f"活跃计划登记清除失败 {ACTIVE_PLAN_FILE}: {e}")
+        logger.opt(exception=True).warning(f'活跃计划登记清除失败 {ACTIVE_PLAN_FILE}: {e}')

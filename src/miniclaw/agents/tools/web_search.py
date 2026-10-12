@@ -58,7 +58,7 @@ def _ensure_config_file(path: Path) -> None:
             encoding="utf-8",
         )
     except Exception as e:  # pragma: no cover - 目录/权限异常
-        logger.warning("写入联网搜索配置模板失败: %s", e)
+        logger.warning("写入联网搜索配置模板失败: %s", e, exc_info=True)
 
 
 def load_search_config() -> dict:
@@ -77,7 +77,7 @@ def load_search_config() -> dict:
             if isinstance(loaded, dict):
                 data = loaded
     except Exception as e:
-        logger.warning("读取联网搜索配置失败(%s): %s", path, e)
+        logger.warning("读取联网搜索配置失败(%s): %s", path, e, exc_info=True)
         data = {}
 
     api_key = (EnvVarLoader.get_str("DOUBAO_SEARCH_API_KEY")
@@ -88,6 +88,7 @@ def load_search_config() -> dict:
         timeout = int(EnvVarLoader.get_str("DOUBAO_SEARCH_TIMEOUT")
                       or data.get("timeout") or DEFAULT_TIMEOUT)
     except (TypeError, ValueError):
+        logger.debug("解析搜索超时配置失败，使用默认超时", exc_info=True)
         timeout = DEFAULT_TIMEOUT
 
     return {
@@ -339,6 +340,7 @@ async def web_search(
     try:
         payload = resp.json()
     except Exception as e:
+        logger.exception("联网搜索响应解析失败")
         return _err(f"联网搜索响应解析失败：{e}；响应内容：{resp.text[:500]}")
 
     meta = payload.get("ResponseMetadata") or {}

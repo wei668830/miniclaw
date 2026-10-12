@@ -30,7 +30,7 @@ async def store_chat_context(
             json.dump(message, f, ensure_ascii=False)
             f.write('\n')  # 每条记录后添加换行符
     except Exception as e:
-        logger.error(f"Error storing chat context for CID {cid}: {e}")
+        logger.opt(exception=True).error(f'Error storing chat context for CID {cid}: {e}')
 
 
 async def fetch_chat_context(cid: str) -> List[dict]:
@@ -47,10 +47,10 @@ async def fetch_chat_context(cid: str) -> List[dict]:
                             message = json.loads(line)
                             messages.append(message)
                         except json.JSONDecodeError as e:
-                            logger.warning(f"Failed to parse line in {cid_file}: {e}")
+                            logger.opt(exception=True).warning(f'Failed to parse line in {cid_file}: {e}')
             return messages
     except Exception as e:
-        logger.error(f"Error fetching chat context for CID {cid}: {e}")
+        logger.opt(exception=True).error(f'Error fetching chat context for CID {cid}: {e}')
 
     return []
 

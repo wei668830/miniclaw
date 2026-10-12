@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import shutil
+import signal
 from pathlib import Path
 
 from aioconsole import aprint
@@ -114,6 +115,10 @@ class CommandLineInteraction:
         self._refresh_tools()
         self.messages = []
         self.should_exit = False  # 增加退出标志
+        # 执行期「Ctrl+C 中止当前轮次」所需运行时状态
+        self._round_task = None   # 当前正在执行的「一轮对话」任务（可被取消）
+        self._loop = None         # 运行中的事件循环（供信号处理器调度 task.cancel）
+        self._prev_sigint = None  # 安装自定义 SIGINT 处理器之前注册的处理器
         # 非调试代码时使用，调试时请注释
         self.prompt_session = get_prompt_session(commands.SLASH_COMMANDS)
 
@@ -162,7 +167,7 @@ class CommandLineInteraction:
         console.print("记忆缓存: [cyan]" + escape(str(self.memory_file)) + "[/cyan]")
         console.print("会话历史: [cyan]" + escape(str(self.history_store.path)) + "[/cyan]")
         console.print("运行模式: [cyan]" + escape(str(self.runtime_mode)) + "[/cyan]")
-        console.print("\n[italic]请使用 /help 查看指令，/quit 退出[/italic]\n")
+        console.print("\n[italic]请使用 /help 查看指令，/quit 退出；执行中按 Ctrl+C 可停止本轮[/italic]\n")
 
         # 登记当前会话元数据，并在上次会话异常退出时给出恢复提示
         prev = load_current_session()
@@ -174,7 +179,7 @@ class CommandLineInteraction:
                 self.active_plan_path,
             )
         except Exception as e:
-            logger.debug(f"当前会话元数据写入失败: {e}")
+            logger.opt(exception=True).debug(f'当前会话元数据写入失败: {e}')
         self._register_session_meta()
         if prev and prev.get("clean_shutdown") is False:
             console.print(
@@ -233,7 +238,7 @@ class CommandLineInteraction:
         try:
             self.history_store.append(message)
         except Exception as e:
-            logger.debug(f"会话历史落盘失败: {e}")
+            logger.opt(exception=True).debug(f'会话历史落盘失败: {e}')
         return message
 
     def _sampling_kwargs(self) -> dict:
@@ -374,13 +379,13 @@ class CommandLineInteraction:
                     if hasattr(self.prompt_session, 'close'):
                         self.prompt_session.close()
                 except Exception:
-                    pass
+                    logger.opt(exception=True).debug('关闭 prompt_session 失败')
 
             # 给事件循环一点时间处理清理
             await asyncio.sleep(0)
 
         except Exception as e:
-            logger.debug(f"清理资源时出错: {e}")
+            logger.opt(exception=True).debug(f'清理资源时出错: {e}')
 
 
     def _reload_skills(self):
@@ -408,12 +413,13 @@ class CommandLineInteraction:
                 try:
                     data = json.loads(path.read_text(encoding="utf-8")) or {}
                 except Exception:
+                    logger.opt(exception=True).debug('会话元数据解析失败，使用空字典')
                     data = {}
             data["session_id"] = sid
             data["memory_file"] = self.memory_file
             path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         except Exception as e:
-            logger.debug(f"会话元数据写入失败: {e}")
+            logger.opt(exception=True).debug(f'会话元数据写入失败: {e}')
 
     def _load_session_memory_file(self, session_id: str) -> str | None:
         """读取会话绑定的记忆文件；不存在或已删除时返回 None。"""
@@ -423,7 +429,7 @@ class CommandLineInteraction:
                 return None
             data = json.loads(path.read_text(encoding="utf-8")) or {}
         except Exception as e:
-            logger.debug(f"会话元数据读取失败: {e}")
+            logger.opt(exception=True).debug(f'会话元数据读取失败: {e}')
             return None
         memory_file = data.get("memory_file")
         if memory_file and os.path.exists(memory_file):
@@ -483,6 +489,7 @@ class CommandLineInteraction:
             try:
                 value = int(raw)
             except ValueError:
+                logger.opt(exception=True).debug('context window/reserve 参数解析失败，应为整数')
                 console.print("[red]❌ 无效输入，请输入一个整数。[/red]")
                 return
             if key == "window" and value <= 0:
@@ -495,6 +502,7 @@ class CommandLineInteraction:
             try:
                 value = float(raw)
             except ValueError:
+                logger.opt(exception=True).debug('context 比例参数解析失败，应为小数')
                 console.print("[red]❌ 无效输入，请输入一个 0~1 之间的小数。[/red]")
                 return
             if not (0.0 < value < 1.0):
@@ -556,6 +564,7 @@ class CommandLineInteraction:
             try:
                 last_count = int(arg)
             except ValueError:
+                logger.opt(exception=True).debug('会话列表数量参数解析失败，使用默认值')
                 last_count = SESSION_LIST_DEFAULT_COUNT
 
         raw_dir = self._history_raw_dir()
@@ -569,7 +578,7 @@ class CommandLineInteraction:
                 stats = HistoryStore(f.stem, base_dir=str(raw_dir)).stats()
                 rows.append((f.stem, stats))
             except Exception as e:
-                logger.debug(f"读取会话 {f.stem} 统计失败: {e}")
+                logger.opt(exception=True).debug(f'读取会话 {f.stem} 统计失败: {e}')
         rows.sort(key=lambda x: x[1].get("updated_at") or "", reverse=True)
         if last_count > 0:
             rows = rows[:last_count]
@@ -588,6 +597,7 @@ class CommandLineInteraction:
                 )
                 summary = clip(str(first_user or "").replace("\n", " "), SESSION_SUMMARY_CLIP)
             except Exception:
+                logger.opt(exception=True).debug('读取会话摘要失败，降级为空')
                 summary = ""
             mark = " *" if sid == self.session_id else ""
             table.add_row(
@@ -612,6 +622,7 @@ class CommandLineInteraction:
         try:
             msgs = store.load_all()
         except Exception as e:
+            logger.exception("加载会话消息失败")
             console.print(f"[red]❌ 会话读取失败（JSONL 可能损坏）: {escape(str(e))}[/red]")
             return False
         if not msgs:
@@ -641,7 +652,7 @@ class CommandLineInteraction:
                 active_plan=self.active_plan_path,
             )
         except Exception as e:
-            logger.debug(f"更新当前会话失败: {e}")
+            logger.opt(exception=True).debug(f'更新当前会话失败: {e}')
         self._register_session_meta()
 
         console.print(f"[green]✅ 已加载会话 {escape(session_id)}（{len(msgs)} 条消息）[/green]")
@@ -663,6 +674,7 @@ class CommandLineInteraction:
         try:
             msgs = store.load_all()
         except Exception as e:
+            logger.exception("导出会话：读取消息失败")
             console.print(f"[red]❌ 会话读取失败: {escape(str(e))}[/red]")
             return
 
@@ -699,6 +711,7 @@ class CommandLineInteraction:
             with open(target, "w", encoding="utf-8") as f:
                 f.write(markdown)
         except Exception as e:
+            logger.exception("导出会话：写入文件失败")
             console.print(f"[red]❌ 导出失败: {escape(str(e))}[/red]")
             return
         console.print(f"[green]✅ 会话已导出: {escape(str(target))}[/green]")
@@ -833,7 +846,7 @@ class CommandLineInteraction:
             try:
                 lookup_count = int(arg)
             except ValueError:
-                pass
+                logger.opt(exception=True).debug('历史条数参数解析失败，使用默认值')
         for m in self.messages[-1 * lookup_count:]:
             console.print_json(data=m)
 
@@ -879,10 +892,13 @@ class CommandLineInteraction:
                 for filename in files[MEMORY_FILE_MAX_COUNT:]:
                     os.remove(os.path.join(self.memory_dir, filename))
         except FileNotFoundError:
+            logger.opt(exception=True).warning('记忆目录不存在')
             console.print(f"[red]错误：文件夹 '{escape(str(self.memory_dir))}' 不存在[/red]")
         except PermissionError:
+            logger.opt(exception=True).warning('无权限访问记忆目录')
             console.print(f"[red]错误：没有权限访问文件夹 '{escape(str(self.memory_dir))}'[/red]")
         except Exception as e:
+            logger.exception("列出记忆文件失败")
             console.print(f"[red]错误：{escape(str(e))}[/red]")
 
     async def _cmd_session_resume(self, arg: str | None):
@@ -901,6 +917,7 @@ class CommandLineInteraction:
             })
             await self.stream("", append_user_message=False)
         except Exception as e:
+            logger.exception("会话恢复失败")
             console.print(f"[red]❌ 会话恢复失败: {escape(str(e))}[/red]")
 
     def _cmd_skill_list(self, arg: str | None):
@@ -922,6 +939,7 @@ class CommandLineInteraction:
                 table.add_row(name, description)
             console.print(table)
         except Exception as e:
+            logger.exception("获取技能列表失败")
             console.print(f"[red]❌ 获取技能列表失败: {escape(str(e))}[/red]")
 
     def _cmd_skill_load(self, arg: str | None):
@@ -941,6 +959,7 @@ class CommandLineInteraction:
                 if name in skills_dict and name not in skill_loaded_dict:  # 加载未加载的技能
                     self.skills_preload.append(skills_dict[name])
         except Exception as e:
+            logger.exception("加载技能失败")
             console.print(f"[red]❌ 加载技能失败: {escape(str(e))}[/red]")
 
     def _accumulate_usage(self, result) -> None:
@@ -964,7 +983,7 @@ class CommandLineInteraction:
                 self._cost_baseline = info.get("total_balance")
                 self._cost_currency = info.get("currency")
         except Exception:
-            pass
+            logger.opt(exception=True).debug('获取余额基线失败')
 
     def _format_usage(self) -> str:
         u = self.usage
@@ -1047,6 +1066,7 @@ class CommandLineInteraction:
         try:
             new_temp = float(arg)
         except ValueError:
+            logger.opt(exception=True).debug('温度参数解析失败，应为数字')
             console.print("[red]❌ 无效输入，请输入一个数字。[/red]")
             return
         if 0.0 <= new_temp <= 1.0:
@@ -1063,6 +1083,7 @@ class CommandLineInteraction:
         try:
             new_max_tokens = int(arg)
         except ValueError:
+            logger.opt(exception=True).debug('最大词元数参数解析失败，应为整数')
             console.print("[red]❌ 无效输入，请输入一个整数。[/red]")
             return
         if new_max_tokens > 0:
@@ -1072,72 +1093,145 @@ class CommandLineInteraction:
             console.print("[red]❌ 无效的最大词元数，请输入一个正整数。[/red]")
 
     def _cmd_quit(self, arg: str | None):
-        """处理 /quit 命令：标记干净退出并触发中断以优雅退出。"""
+        """处理 /quit 命令：标记干净退出，由主循环检测标志后优雅退出。
+
+        这里不再抛出 ``KeyboardInterrupt``，否则会被 ``run()`` 的
+        ``except KeyboardInterrupt`` 再次捕获，导致重复输出
+        「检测到中断信息，再见！」并以“中断”语义退出。
+        """
         self.should_exit = True
         try:
             mark_clean_shutdown(True)
         except Exception:
-            pass
+            logger.opt(exception=True).debug('标记干净退出失败')
         console.print("[bold green]检测到退出指令，再见！[/bold green]")
-        raise KeyboardInterrupt
+
+    # ------------------------------------------------------------------
+    # 执行期「Ctrl+C 中止当前轮次」
+    # ------------------------------------------------------------------
+    def _install_sigint_handler(self) -> None:
+        """安装自定义 SIGINT 处理器。
+
+        执行期（模型流式生成 / 工具执行）按 Ctrl+C 只取消当前这一轮任务，
+        不会终止整个进程；空闲提示符下按 Ctrl+C 仍沿用原中止行为。
+        """
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.opt(exception=True).debug('获取运行中事件循环失败，置空')
+            self._loop = None
+        try:
+            self._prev_sigint = signal.getsignal(signal.SIGINT)
+            signal.signal(signal.SIGINT, self._on_sigint)
+        except (ValueError, OSError, RuntimeError):
+            logger.opt(exception=True).debug('安装 SIGINT 处理器失败')
+            self._prev_sigint = None
+
+    def _restore_sigint_handler(self) -> None:
+        if self._prev_sigint is not None:
+            try:
+                signal.signal(signal.SIGINT, self._prev_sigint)
+            except (ValueError, OSError, RuntimeError):
+                logger.opt(exception=True).debug('恢复原 SIGINT 处理器失败')
+
+    def _on_sigint(self, signum, frame) -> None:
+        """SIGINT 处理器：有正在执行的轮次则调度取消，否则交回原处理器。"""
+        task = self._round_task
+        if task is not None and not task.done() and self._loop is not None:
+            try:
+                self._loop.call_soon_threadsafe(task.cancel)
+            except RuntimeError:
+                logger.opt(exception=True).debug('调度取消当前轮次任务失败')
+            return
+        prev = self._prev_sigint
+        if callable(prev):
+            prev(signum, frame)
+        else:
+            raise KeyboardInterrupt
+
+    async def _run_round(self, user_input: str, append_user_message: bool) -> None:
+        """把一轮对话作为「可取消任务」执行，以便被 Ctrl+C 即时中止。
+
+        取消后不落盘任何未完成内容（`run_stream_round` 仅在收尾/工具完成后才写历史），
+        因此不会产生悬空 `tool_calls`，也不会污染对话上下文。
+        """
+        task = asyncio.ensure_future(
+            self.stream(user_input, append_user_message=append_user_message)
+        )
+        self._round_task = task
+        try:
+            await task
+        except asyncio.CancelledError:
+            logger.opt(exception=True).debug('本轮生成任务被取消')
+            if not self.should_exit:
+                console.print(
+                    "\n[yellow]⏹️ 已停止本轮生成（已回到输入，可继续对话；退出请用 /quit）[/yellow]"
+                )
+        finally:
+            # 兜底：若因中断异常提前返回而任务仍在运行，取消它，避免后台泄漏。
+            if not task.done():
+                task.cancel()
+            self._round_task = None
 
     async def run(self):
         """运行命令行交互界面"""
-        while True:
-            try:
-                if self.should_exit:
-                    break
-
-                # 调试代码时使用
-                # user_input = input("miniclaw> ")
-                # 非高度代码时使用
-                user_input = await self.prompt_session.prompt_async("miniclaw> ")
-
-                if not user_input.strip():
-                    continue
-
-                # 指令处理
-                if user_input.startswith("/"):
-                    command = user_input[1:].strip()
-                    await self.command_handler(command)
+        self._install_sigint_handler()
+        try:
+            while True:
+                try:
                     if self.should_exit:
                         break
+
+                    # 调试代码时使用
+                    # user_input = input("miniclaw> ")
+                    # 非高度代码时使用
+                    user_input = await self.prompt_session.prompt_async("miniclaw> ")
+
+                    if not user_input.strip():
+                        continue
+
+                    # 指令处理
+                    if user_input.startswith("/"):
+                        command = user_input[1:].strip()
+                        await self.command_handler(command)
+                        if self.should_exit:
+                            break
+                        continue
+
+                    # 若执行了精简记忆或者指定新的记忆缓存文件，则在下一轮用户输入时重建上下文，
+                    # 由大模型参考记忆摘要与活跃计划继续执行未完成步骤。
+                    append_user = True
+                    if self.update_memory:
+                        _, memory_content = Memory.load(self.memory_file)
+                        await self._rebuild_messages_from_memory(summary=memory_content)
+                        self._append_message({
+                            "role": "user",
+                            "content": f"【用户最新输入】\n\n{user_input}",
+                        })
+                        append_user = False
+                        self.update_memory = False
+
+                    # 一轮对话以可取消任务执行；执行期 Ctrl+C 只中止本轮
+                    await self._run_round(user_input, append_user)
+
+                except KeyboardInterrupt:
+                    logger.opt(exception=True).debug('空闲提示符下收到 Ctrl+C，取消当前输入')
+                    # 空闲提示符下按 Ctrl+C：仅取消当前输入，不退出（退出请用 /quit 或 Ctrl+D）
+                    console.print("[dim]（已取消当前输入；退出请用 /quit）[/dim]")
                     continue
-
-                if not user_input.strip():
-                    continue
-
-                # 若执行了精简记忆或者指定新的记忆缓存文件，则在下一轮用户输入时重建上下文，
-                # 由大模型参考记忆摘要与活跃计划继续执行未完成步骤。
-                append_user = True
-                if self.update_memory:
-                    _, memory_content = Memory.load(self.memory_file)
-                    await self._rebuild_messages_from_memory(summary=memory_content)
-                    self._append_message({
-                        "role": "user",
-                        "content": f"【用户最新输入】\n\n{user_input}",
-                    })
-                    append_user = False
-                    self.update_memory = False
-
-                await self.stream(user_input, append_user_message=append_user)
-
-            except KeyboardInterrupt:
-                try:
-                    mark_clean_shutdown(True)
-                except Exception:
-                    pass
-                await aprint("\n\n检测到中断信息，再见！")
-                break
-            except EOFError:
-                try:
-                    mark_clean_shutdown(True)
-                except Exception:
-                    pass
-                await aprint("\n\n检测到结束信号，再见！")
-                break
-            except Exception as e:
-                await aprint(f"\n\n发生错误: {e}")
+                except EOFError:
+                    logger.opt(exception=True).debug('检测到输入流结束（EOF）')
+                    try:
+                        mark_clean_shutdown(True)
+                    except Exception:
+                        logger.opt(exception=True).debug('EOF 退出时标记干净退出失败')
+                    await aprint("\n\n检测到结束信号，再见！")
+                    break
+                except Exception as e:
+                    logger.exception("主循环发生未预期错误")
+                    await aprint(f"\n\n发生错误: {e}")
+        finally:
+            self._restore_sigint_handler()
 
     def _append_user_message(self, user_input: str):
         """把用户输入（含预加载技能）写入上下文。"""

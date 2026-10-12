@@ -1,3 +1,4 @@
+import inspect
 import os
 from typing import AsyncIterator, Optional
 
@@ -11,9 +12,29 @@ from ..llm_configurator import (
     LLMConfigurator,
     LLM_USAGE_MASTER,
 )
+from ...utils.common import masking_str
 
 # 关闭所有的调试信息输出
 litellm.suppress_debug_info = True
+
+
+async def _aclose_stream_quietly(response) -> None:
+    """尽力关闭 litellm 流式响应对象（用于正常结束与取消/中止两种收尾）。
+
+    被取消（Ctrl+C 中止本轮）时，异步生成器的 ``finally`` 仍会执行，这里做
+    best-effort 关闭，释放底层 HTTP 连接；任何异常都被吞掉，避免影响上层收尾。
+    """
+    if response is None:
+        return
+    aclose = getattr(response, "aclose", None) or getattr(response, "close", None)
+    if aclose is None:
+        return
+    try:
+        result = aclose()
+        if inspect.isawaitable(result):
+            await result
+    except BaseException:
+        logger.opt(exception=True).debug('关闭 litellm 流式响应失败')
 
 
 def _root_cause(e: Exception) -> Optional[Exception]:
@@ -42,6 +63,7 @@ def _cost_from_env(prompt_tokens: int, completion_tokens: int) -> Optional[float
         in_price = float(os.environ.get("MINICLAW_COST_INPUT_PER_1M", "0") or 0)
         out_price = float(os.environ.get("MINICLAW_COST_OUTPUT_PER_1M", "0") or 0)
     except (TypeError, ValueError):
+        logger.opt(exception=True).debug('解析费用环境变量失败，跳过环境变量兜底单价')
         return None
     if in_price == 0 and out_price == 0:
         return None
@@ -70,6 +92,7 @@ def _compute_cost(model: str, prompt_tokens: Optional[int], completion_tokens: O
         )
         return float(prompt_cost) + float(completion_cost)
     except Exception:
+        logger.opt(exception=True).debug('litellm 价格表计算失败，回退到内置兜底单价')
         return _fallback_cost(model, pt, ct)
 
 
@@ -85,10 +108,12 @@ def _compute_tokens_and_cost(model: str, messages: list, completion_text: str):
     try:
         prompt_tokens = litellm.token_counter(model=model, messages=messages)
     except Exception:
+        logger.opt(exception=True).debug('估算 prompt token 失败')
         prompt_tokens = None
     try:
         completion_tokens = litellm.token_counter(model=model, text=completion_text or "")
     except Exception:
+        logger.opt(exception=True).debug('估算 completion token 失败')
         completion_tokens = None
     if prompt_tokens is not None and completion_tokens is not None:
         total_tokens = prompt_tokens + completion_tokens
@@ -152,7 +177,12 @@ class LiteLLMClient(BaseLLMClient):
         if "usage_type" in kwargs:
             kwargs.pop("usage_type")
 
-        logger.info(f"构建 LiteLLM 请求参数:[model]:{kwargs['model']}, [api_base]:{kwargs['api_base']}, [api_key]:{kwargs['api_key'][:10]}")
+        logger.info(
+            "构建 LiteLLM 请求参数: [model]:{}, [api_base]:{}, [api_key]:{}",
+            kwargs.get("model"),
+            kwargs.get("api_base"),
+            masking_str(str(kwargs.get("api_key") or "")),
+        )
 
         return kwargs
 
@@ -226,6 +256,7 @@ class LiteLLMClient(BaseLLMClient):
             llm_usage_type: str = LLM_USAGE_MASTER,
             **kwargs
     ) -> AsyncIterator[LLMStreamChunk]:
+        response = None
         try:
             params = self._build_completion_kwargs(
                     messages=messages,
@@ -326,3 +357,6 @@ class LiteLLMClient(BaseLLMClient):
                 finish=True,
                 error=error
             )
+        finally:
+            # 正常结束、报错、以及被取消（Ctrl+C 中止本轮 / GeneratorExit）时统一关闭底层流。
+            await _aclose_stream_quietly(response)

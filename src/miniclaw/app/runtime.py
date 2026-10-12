@@ -60,6 +60,7 @@ def _tool_response_to_text(result: ToolResponse) -> str:
     try:
         return result.model_dump_json()
     except Exception:
+        logger.opt(exception=True).debug('工具结果 JSON 序列化失败，回退为文本表示')
         return json.dumps({"content": [{"type": "text", "text": str(result)}]}, ensure_ascii=False)
 
 
@@ -187,7 +188,7 @@ class ChatSession:
         try:
             self.history_store.append(msg)
         except Exception:
-            logger.debug("会话历史写入失败", exc_info=True)
+            logger.opt(exception=True).debug('会话历史写入失败')
 
     # ------------------------------------------------------------------
     # 技能（对话式加载）
@@ -256,7 +257,7 @@ class ChatSession:
                 keep = EnvVarLoader.get_int("MINICLAW_MEMORY_KEEP_RECENT", DEFAULT_MEMORY_KEEP_RECENT)
                 self.messages = shrink_messages(self.messages, keep_recent_turns=keep)
         except Exception:
-            logger.debug("ensure_context 精简失败", exc_info=True)
+            logger.opt(exception=True).debug('ensure_context 精简失败')
 
     def context_info(self) -> dict:
         soft, hard, window = get_context_budget()
@@ -352,7 +353,7 @@ class ChatSession:
         try:
             await self._ensure_balance_baseline()
         except Exception:
-            logger.debug("余额基线获取失败（不影响对话）", exc_info=True)
+            logger.opt(exception=True).debug('余额基线获取失败（不影响对话）')
         yield {
             "event": "meta",
             "data": {

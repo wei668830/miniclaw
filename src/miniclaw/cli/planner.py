@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
 
+from loguru import logger
+
 from .actor import Actor
 from . import state
 from ..agents import LLMResponse
@@ -88,6 +90,7 @@ class Planner(Actor):
                     title = frontmatter.get("title")
                 summary = self._extract_progress_summary(content)
             except Exception:
+                logger.opt(exception=True).warning('读取计划文件失败，标题回退为文件名')
                 title = None
             if not title:
                 title = self.path.name
@@ -147,6 +150,7 @@ class Planner(Actor):
         try:
             content = p.read_text(encoding="utf-8")
         except Exception as e:
+            logger.opt(exception=True).warning('读取计划文件失败')
             return ToolResponse(
                 content=[
                     TextBlock(
@@ -193,6 +197,7 @@ class Planner(Actor):
         try:
             summary = self._extract_progress_summary(p.read_text(encoding="utf-8"))
         except Exception:
+            logger.opt(exception=True).warning('读取计划进度摘要失败')
             summary = ""
 
         text = f"已恢复执行计划，文件路径: {plan_path}"

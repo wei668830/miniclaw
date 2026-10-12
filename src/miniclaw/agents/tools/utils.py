@@ -1,4 +1,6 @@
 
+from loguru import logger
+
 # Maximum file size to read into memory (1GB)
 MAX_FILE_READ_BYTES = 1024 * 1024 * 1024
 
@@ -20,5 +22,6 @@ def read_file_safe(
         with open(file_path, "r", encoding="utf-8-sig") as f:
             return f.read(max_bytes)
     except UnicodeDecodeError:
+        logger.opt(exception=True).debug(f'UTF-8 解码失败，忽略错误重读: {file_path}')
         with open(file_path, "r", encoding="utf-8-sig", errors="ignore") as f:
             return f.read(max_bytes)

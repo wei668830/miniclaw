@@ -7,6 +7,8 @@ from typing import List, Tuple
 
 import yaml
 
+from loguru import logger
+
 from ..constant import EnvVarLoader
 
 
@@ -80,6 +82,7 @@ def extract_yaml_frontmatter(content):
         try:
             return yaml.safe_load(yaml_content)
         except yaml.YAMLError:
+            logger.opt(exception=True).debug('解析 SKILL.md YAML frontmatter 失败')
             return None
     return None
 
@@ -127,7 +130,7 @@ def scan_skills(skills_dir_path: Path | None = None) -> List[Tuple[str, str, Pat
             shutil.copytree(src_skills_dir, skills_dir, dirs_exist_ok=True)
         except Exception:
             # 复制失败（权限等）不阻断后续扫描
-            pass
+            logger.opt(exception=True).debug('复制内置技能目录失败')
 
     skills: List[Tuple[str, str, Path]] = []
     if not skills_dir.exists():
@@ -142,6 +145,7 @@ def scan_skills(skills_dir_path: Path | None = None) -> List[Tuple[str, str, Pat
         try:
             content = skill_md.read_text(encoding="utf-8")
         except Exception:
+            logger.opt(exception=True).warning('读取技能文件失败，跳过该技能')
             continue
         frontmatter = extract_yaml_frontmatter(content)
         if frontmatter and frontmatter.get("name") is not None and frontmatter.get("description") is not None:
@@ -163,6 +167,7 @@ def build_skill_injection(user_input: str, skills: List[Tuple[str, str, Path]]) 
         try:
             content = skill_md.read_text(encoding="utf-8")
         except Exception:
+            logger.opt(exception=True).warning('读取技能文件失败，跳过该技能')
             continue
         text += (
             f"\n\n**【技能名称：{name}，技能文件夹路径：{str(skill_dir)}，技能指引如下】：**\n\n"

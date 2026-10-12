@@ -3,6 +3,8 @@ from collections import deque
 from pathlib import Path
 from typing import Optional
 
+from loguru import logger
+
 from .utils import read_file_safe
 from ..base_llm_client import ToolResponse, TextBlock
 from ...config.context import get_current_workspace_dir
@@ -75,6 +77,7 @@ async def read_file(
         try:
             start_line = int(start_line)
         except (ValueError, TypeError):
+            logger.opt(exception=True).warning('start_line 参数无法转换为整数')
             return ToolResponse(
                 content=[
                     TextBlock(
@@ -88,6 +91,7 @@ async def read_file(
         try:
             end_line = int(end_line)
         except (ValueError, TypeError):
+            logger.opt(exception=True).warning('end_line 参数无法转换为整数')
             return ToolResponse(
                 content=[
                     TextBlock(
@@ -158,6 +162,7 @@ async def read_file(
         )
 
     except Exception as e:
+        logger.exception("读取文件失败")
         return ToolResponse(
             content=[
                 TextBlock(
@@ -205,6 +210,7 @@ async def write_file(
             ],
         )
     except Exception as e:
+        logger.exception("写入文件失败")
         return ToolResponse(
             content=[
                 TextBlock(
@@ -268,6 +274,7 @@ async def edit_file(
     try:
         content = read_file_safe(resolved_path)
     except Exception as e:
+        logger.exception("编辑前读取文件失败")
         return ToolResponse(
             content=[
                 TextBlock(
@@ -347,6 +354,7 @@ async def append_file(
             ],
         )
     except Exception as e:
+        logger.exception("追加写入文件失败")
         return ToolResponse(
             content=[
                 TextBlock(
@@ -425,6 +433,7 @@ async def tail_file(
         )
 
     except Exception as e:
+        logger.exception("读取文件尾部失败")
         return ToolResponse(
             content=[
                 TextBlock(

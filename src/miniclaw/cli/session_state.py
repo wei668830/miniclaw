@@ -41,7 +41,7 @@ def _read_raw() -> dict | None:
         with open(CURRENT_SESSION_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        logger.warning(f"当前会话读取失败 {CURRENT_SESSION_FILE}: {e}")
+        logger.opt(exception=True).warning(f'当前会话读取失败 {CURRENT_SESSION_FILE}: {e}')
         return None
     return data if isinstance(data, dict) else None
 
@@ -52,7 +52,7 @@ def _write_raw(data: dict) -> None:
         with open(CURRENT_SESSION_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False)
     except Exception as e:
-        logger.warning(f"当前会话写入失败 {CURRENT_SESSION_FILE}: {e}")
+        logger.opt(exception=True).warning(f'当前会话写入失败 {CURRENT_SESSION_FILE}: {e}')
 
 
 def save_current_session(

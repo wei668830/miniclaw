@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from loguru import logger
+
 
 MINICLAW_LOG = """
   __  __ _      _  ___ _             
@@ -44,6 +46,7 @@ class EnvVarLoader:
                 return default
             return value
         except (TypeError, ValueError):
+            logger.opt(exception=True).debug(f'环境变量 {env_var} 解析为 float 失败，回退默认值')
             return default
 
     @staticmethod
@@ -62,6 +65,7 @@ class EnvVarLoader:
                 return max_value
             return value
         except (TypeError, ValueError):
+            logger.opt(exception=True).debug(f'环境变量 {env_var} 解析为 int 失败，回退默认值')
             return default
 
     @staticmethod

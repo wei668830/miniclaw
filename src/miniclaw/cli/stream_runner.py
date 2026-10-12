@@ -133,6 +133,7 @@ async def _execute_tool_call(
             logger.debug(f"clerk response: {_clerk_response}")
             return ToolResponse(content=[TextBlock(type="text", text=_clerk_response)])
         except Exception as e:
+            logger.exception("子代理工具调用失败: {}", LLM_FUNCTION_SUBAGENT)
             return ToolResponse(
                 content=[TextBlock(type="text", text=f"调用工具 {LLM_FUNCTION_SUBAGENT} 错误: {str(e)}")]
             )
@@ -151,6 +152,7 @@ async def _execute_tool_call(
             logger.debug(f"planner response: {tool_response.content}")
             return tool_response
         except Exception as e:
+            logger.exception("计划器工具调用失败: {}", LLM_FUNCTION_PLANNER)
             return ToolResponse(
                 content=[TextBlock(type="text", text=f"调用工具 {LLM_FUNCTION_PLANNER} 错误: {str(e)}")]
             )
@@ -360,7 +362,8 @@ async def run_stream_round(
     keep_reasoning = _should_keep_reasoning(model, base_url, custom_llm_provider)
     safe_messages = _sanitize_messages(messages, keep_reasoning=keep_reasoning)
 
-    waiting_spinner = Spinner("dots", text="", style="bold blue")
+    # 生成期间提示可中止本轮（Ctrl+C）；该文案仅在首个 token 到达前显示。
+    waiting_spinner = Spinner("dots", text="（生成中，按 Ctrl+C 可停止本轮）", style="bold blue")
     # transient=True：预览区域退出即清除，持久内容一律由 console.print 落屏，
     # 避免「补打落屏」与「Live 末帧」重复显示（详见模块 docstring）。
     with Live(waiting_spinner, console=console, auto_refresh=False,

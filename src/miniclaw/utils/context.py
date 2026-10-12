@@ -29,6 +29,7 @@ from ..constant import (
 try:
     import tiktoken
 except ImportError:  # pragma: no cover - 环境未安装 tiktoken 时回退启发式
+    logger.opt(exception=True).debug('tiktoken 未安装，回退启发式 token 估算')
     tiktoken = None
 
 # 每条消息的固定 token 开销
@@ -61,7 +62,7 @@ def _get_encoder():
     try:
         _ENCODER = tiktoken.get_encoding("cl100k_base")
     except Exception as e:  # pragma: no cover - 模型名不被识别等情况
-        logger.debug(f"tiktoken 编码器加载失败，回退启发式估算: {e}")
+        logger.opt(exception=True).debug(f'tiktoken 编码器加载失败，回退启发式估算: {e}')
         _ENCODER = None
     return _ENCODER
 
@@ -108,7 +109,7 @@ def estimate_text_tokens(text: str) -> int:
         try:
             return len(encoder.encode(text))
         except Exception as e:  # pragma: no cover - 编码失败回退
-            logger.debug(f"tiktoken 编码失败，回退启发式估算: {e}")
+            logger.opt(exception=True).debug(f'tiktoken 编码失败，回退启发式估算: {e}')
     return _heuristic_tokens(text)
 
 
@@ -246,7 +247,7 @@ def get_context_budget() -> tuple[int, int, int]:
             soft = max(1, int(hard * 0.6))
         return soft, hard, window
     except (TypeError, ValueError) as e:
-        logger.debug(f"上下文预算配置异常，回退默认: {e}")
+        logger.opt(exception=True).debug(f'上下文预算配置异常，回退默认: {e}')
         window = DEFAULT_CONTEXT_WINDOW
         soft = int(window * DEFAULT_CONTEXT_SOFT_RATIO)
         hard = int(window * DEFAULT_CONTEXT_HARD_RATIO)
@@ -309,7 +310,7 @@ def shrink_tool_response(text: str, *, name: str | None = None) -> str:
             f.write(text)
         abs_path = file_path.resolve()
     except Exception as e:
-        logger.warning(f"工具输出落盘失败，降级为仅截断: {e}")
+        logger.opt(exception=True).warning(f'工具输出落盘失败，降级为仅截断: {e}')
 
     if abs_path is None:
         return (

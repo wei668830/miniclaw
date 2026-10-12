@@ -7,6 +7,8 @@ import platform
 import subprocess
 import time
 
+from loguru import logger
+
 from ..base_llm_client import ToolResponse, TextBlock
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
@@ -51,6 +53,7 @@ def _capture_mss(path: str) -> ToolResponse:
     try:
         import mss
     except ImportError:
+        logger.opt(exception=True).debug('未安装可选依赖 mss')
         return _tool_error(
             "desktop_screenshot requires the 'mss' package. "
             "Install with: pip install mss",
@@ -63,6 +66,7 @@ def _capture_mss(path: str) -> ToolResponse:
             return _tool_error("mss reported success but file was not created")
         return _tool_ok(path, f"Desktop screenshot saved to {path}")
     except Exception as e:
+        logger.exception("mss 屏幕截图失败")
         return _tool_error(f"desktop_screenshot (mss) failed: {e!s}")
 
 
@@ -91,10 +95,12 @@ def _capture_macos_screencapture(
             )
         return _tool_ok(path, f"Desktop screenshot saved to {path}")
     except subprocess.TimeoutExpired:
+        logger.exception("screencapture 执行超时")
         return _tool_error(
             "screencapture timed out (e.g. window selection cancelled)",
         )
     except Exception as e:
+        logger.exception("macOS screencapture 截图失败")
         return _tool_error(f"desktop_screenshot failed: {e!s}")
 
 

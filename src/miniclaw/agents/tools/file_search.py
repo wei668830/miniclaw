@@ -115,6 +115,7 @@ def _is_text_file(path: Path) -> bool:
         if path.stat().st_size > _MAX_FILE_SIZE:
             return False
     except OSError:
+        logger.opt(exception=True).debug('获取文件大小失败，按非文本文件跳过')
         return False
     return True
 
@@ -124,6 +125,7 @@ def _relative_display(target: Path, root: Path) -> str:
     try:
         return str(target.relative_to(root)).replace(os.sep, "/")
     except ValueError:
+        logger.opt(exception=True).debug('计算相对路径失败，回退为绝对路径')
         return str(target).replace(os.sep, "/")
 
 
@@ -147,6 +149,7 @@ def _resolve_search_root(
     try:
         exists = search_root.exists()
     except OSError as e:
+        logger.exception(f"访问搜索根路径失败: {search_root}")
         return _make_response(
             f"Error: Cannot access path {search_root} — {e}",
         )
@@ -428,6 +431,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
                         break
 
         except OSError:
+            logger.opt(exception=True).debug(f'读取文件失败，跳过: {file_path}')
             continue
 
         if status != "ok":
@@ -456,6 +460,7 @@ def _walk_and_glob(
                 try:
                     parts = entry.relative_to(search_root).parts
                 except ValueError:
+                    logger.opt(exception=True).debug(f'计算相对路径失败: {entry}')
                     parts = ()
                 if any(p in _SKIP_DIRS for p in parts):
                     continue
@@ -466,7 +471,7 @@ def _walk_and_glob(
                     truncated = True
                     break
     except OSError:
-        pass
+        logger.opt(exception=True).debug('glob 遍历目录失败')
 
     results.sort()
     return results, truncated
@@ -519,6 +524,7 @@ async def grep_search(
             flags,
         )
     except re.error as e:
+        logger.opt(exception=True).warning('无效的正则表达式模式')
         return _make_response(f"Error: Invalid regex pattern — {e}")
 
     cancel = threading.Event()
@@ -533,6 +539,7 @@ async def grep_search(
                 include_pattern,
             )
         except Exception as exc:
+            logger.exception("grep 搜索执行失败")
             return [], f"error: {exc}"
 
     try:
@@ -541,6 +548,7 @@ async def grep_search(
             timeout=_GREP_TIMEOUT,
         )
     except asyncio.TimeoutError:
+        logger.opt(exception=True).warning(f'grep 搜索超时（{_GREP_TIMEOUT}s）')
         cancel.set()
         await asyncio.sleep(0.05)
         return _make_response(
@@ -605,6 +613,7 @@ async def glob_search(
         try:
             return _walk_and_glob(search_root, pattern, cancel)
         except Exception:
+            logger.exception("glob 搜索执行失败")
             return [], False
 
     try:
@@ -613,6 +622,7 @@ async def glob_search(
             timeout=_GLOB_TIMEOUT,
         )
     except asyncio.TimeoutError:
+        logger.opt(exception=True).warning(f'glob 搜索超时（{_GLOB_TIMEOUT}s）')
         cancel.set()
         await asyncio.sleep(0.05)
         return _make_response(

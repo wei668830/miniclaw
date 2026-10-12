@@ -291,7 +291,7 @@ class Memory(Actor):
         try:
             content = p.read_text(encoding="utf-8")
         except Exception as e:
-            logger.warning(f"记忆文件读取失败 {path}: {e}")
+            logger.opt(exception=True).warning(f'记忆文件读取失败 {path}: {e}')
             return {}, ""
 
         frontmatter = extract_yaml_frontmatter(content)

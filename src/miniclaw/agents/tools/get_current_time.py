@@ -28,7 +28,7 @@ async def get_current_time() -> ToolResponse:
     try:
         now = datetime.now(ZoneInfo(user_tz))
     except (ZoneInfoNotFoundError, KeyError):
-        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
+        logger.warning("Invalid timezone %r, falling back to UTC", user_tz, exc_info=True)
         now = datetime.now(timezone.utc)
         user_tz = "UTC"
 
@@ -67,6 +67,7 @@ async def set_user_timezone(timezone_name: str) -> ToolResponse:
     try:
         now = datetime.now(ZoneInfo(tz_name))
     except (ZoneInfoNotFoundError, KeyError):
+        logger.warning("设置时区失败：无效的时区 %r", tz_name, exc_info=True)
         return ToolResponse(
             content=[
                 TextBlock(

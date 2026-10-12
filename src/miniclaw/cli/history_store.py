@@ -35,7 +35,7 @@ class HistoryStore:
                 f.write(line + "\n")
                 f.flush()
         except Exception as e:
-            logger.warning(f"会话历史写入失败 session={self.session_id}: {e}")
+            logger.opt(exception=True).warning(f'会话历史写入失败 session={self.session_id}: {e}')
 
     def load_all(self) -> list[dict]:
         """读取全部消息；跳过损坏行并计数告警。"""
@@ -52,9 +52,10 @@ class HistoryStore:
                     try:
                         messages.append(json.loads(line))
                     except json.JSONDecodeError:
+                        logger.opt(exception=True).debug('会话历史存在损坏行，跳过')
                         bad += 1
         except Exception as e:
-            logger.warning(f"会话历史读取失败 session={self.session_id}: {e}")
+            logger.opt(exception=True).warning(f'会话历史读取失败 session={self.session_id}: {e}')
         if bad:
             logger.warning(
                 f"会话历史 {self.path} 存在 {bad} 行损坏数据，已跳过"
@@ -83,7 +84,7 @@ class HistoryStore:
             mtime = self.path.stat().st_mtime
             updated_at = datetime.fromtimestamp(mtime).isoformat(timespec="seconds")
         except Exception as e:
-            logger.warning(f"会话历史 stat 失败 session={self.session_id}: {e}")
+            logger.opt(exception=True).warning(f'会话历史 stat 失败 session={self.session_id}: {e}')
             size = 0
             updated_at = None
         return {

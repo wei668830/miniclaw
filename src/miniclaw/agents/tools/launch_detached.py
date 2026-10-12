@@ -102,13 +102,13 @@ class TempScriptManager:
                             deleted_count += 1
                             logger.debug(f"删除过期脚本: {filepath}")
                 except Exception as e:
-                    logger.warning(f"删除文件失败 {filepath}: {e}")
+                    logger.opt(exception=True).warning(f'删除文件失败 {filepath}: {e}')
 
             if deleted_count > 0:
                 logger.info(f"清理过期脚本: 共删除 {deleted_count} 个文件")
 
         except Exception as e:
-            logger.warning(f"清理过期脚本失败: {e}")
+            logger.opt(exception=True).warning(f'清理过期脚本失败: {e}')
 
     def cleanup_all(self):
         """清理所有临时文件"""
@@ -121,10 +121,10 @@ class TempScriptManager:
                         if os.path.isfile(filepath):
                             os.remove(filepath)
                     except Exception as e:
-                        logger.warning(f"删除文件失败 {filepath}: {e}")
+                        logger.opt(exception=True).warning(f'删除文件失败 {filepath}: {e}')
                 logger.info(f"已清理所有临时脚本，共 {len(files)} 个文件")
         except Exception as e:
-            logger.warning(f"清理临时目录失败: {e}")
+            logger.opt(exception=True).warning(f'清理临时目录失败: {e}')
 
     def cleanup_on_exit(self):
         """程序退出时清理"""
@@ -169,7 +169,7 @@ class TempScriptManager:
                         'age_hours': (time.time() - newest[1]) / 3600
                     }
         except Exception as e:
-            logger.warning(f"获取统计信息失败: {e}")
+            logger.opt(exception=True).warning(f'获取统计信息失败: {e}')
 
         return stats
 
@@ -262,7 +262,7 @@ async def launch_detached(
         try:
             os.remove(log_file)
         except Exception as e:
-            logger.warning(f"移除日志文件({log_file})失败: {str(e)}")
+            logger.opt(exception=True).warning(f'移除日志文件({log_file})失败: {str(e)}')
 
     # 合并环境变量
     env_dict = os.environ.copy()
@@ -525,7 +525,7 @@ async def _find_actual_processes(cwd: str) -> List[str]:
         return unique_pids[-3:] if unique_pids else []
 
     except Exception as e:
-        logger.debug(f"查找实际进程失败: {e}")
+        logger.opt(exception=True).debug(f'查找实际进程失败: {e}')
         return []
 
 
@@ -555,9 +555,10 @@ async def check_process_running(pid: int) -> bool:
             os.kill(pid, 0)
             return True
     except (OSError, ProcessLookupError):
+        logger.opt(exception=True).debug('检查进程失败（进程可能不存在）')
         return False
     except Exception as e:
-        logger.error(f"检查进程失败: {e}")
+        logger.opt(exception=True).error(f'检查进程失败: {e}')
         return False
 
 
@@ -594,7 +595,7 @@ async def stop_process(pid: int, force: bool = False) -> bool:
             return False
 
     except Exception as e:
-        logger.error(f"停止进程失败: {e}")
+        logger.opt(exception=True).error(f'停止进程失败: {e}')
         return False
 
 
@@ -648,5 +649,5 @@ async def get_process_info(pid: int) -> Optional[Dict]:
         return None
 
     except Exception as e:
-        logger.debug(f"获取进程信息失败: {e}")
+        logger.opt(exception=True).debug(f'获取进程信息失败: {e}')
         return None

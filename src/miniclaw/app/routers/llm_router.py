@@ -151,7 +151,7 @@ async def stream_chat(req: ChatRequest):
                             return
 
             except Exception as e:
-                logger.error(f"对话流发生异常：{e}", exc_info=True)
+                logger.opt(exception=True).error(f'对话流发生异常：{e}')
                 error_payload = {"error": str(e)}
                 yield f"event: error\ndata: {json.dumps(error_payload, ensure_ascii=False)}\n\n"
                 return

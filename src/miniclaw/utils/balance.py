@@ -27,6 +27,7 @@ def _to_float(value) -> Optional[float]:
     try:
         return float(value)
     except (TypeError, ValueError):
+        logger.opt(exception=True).debug('余额数值解析失败，返回 None')
         return None
 
 
@@ -60,7 +61,7 @@ async def fetch_balance(base_url: str, api_key: str, timeout: float = 10.0) -> d
             return {"ok": False, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
         data = resp.json()
     except Exception as e:
-        logger.debug(f"余额查询失败: {e}")
+        logger.opt(exception=True).debug(f'余额查询失败: {e}')
         return {"ok": False, "error": str(e)}
 
     infos = data.get("balance_infos") or []

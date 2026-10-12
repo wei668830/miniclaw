@@ -198,7 +198,7 @@ async def _idle_watchdog(
                 await _action_stop(state)
                 return
     except asyncio.CancelledError:
-        pass
+        logger.debug("空转看门狗任务被取消", exc_info=True)
 
 
 def _atexit_cleanup() -> None:
@@ -220,9 +220,9 @@ def _atexit_cleanup() -> None:
                 try:
                     loop.run_until_complete(_action_stop(ws_state))
                 except Exception:
-                    pass
+                    logger.debug("atexit 内停止浏览器失败，忽略", exc_info=True)
     except Exception:
-        pass
+        logger.debug("atexit 清理浏览器状态失败，忽略", exc_info=True)
 
 
 atexit.register(_atexit_cleanup)
@@ -345,18 +345,18 @@ def _sync_browser_close(state: dict):
         try:
             state["_sync_browser"].close()
         except Exception:
-            pass
+            logger.debug("关闭同步浏览器失败，忽略", exc_info=True)
     elif state["_sync_context"] is not None:
         # persistent context mode: no separate browser object, close context directly
         try:
             state["_sync_context"].close()
         except Exception:
-            pass
+            logger.debug("关闭同步浏览器上下文失败，忽略", exc_info=True)
     if state["_sync_playwright"] is not None:
         try:
             state["_sync_playwright"].stop()
         except Exception:
-            pass
+            logger.debug("停止同步 Playwright 失败，忽略", exc_info=True)
 
 
 def _parse_json_param(value: str, default: Any = None):
@@ -369,6 +369,7 @@ def _parse_json_param(value: str, default: Any = None):
     try:
         return json.loads(value)
     except json.JSONDecodeError:
+        logger.debug("解析 JSON 参数失败，回退默认值", exc_info=True)
         if "," in value:
             return [x.strip() for x in value.split(",")]
         return default
@@ -615,6 +616,7 @@ async def _ensure_browser(
         _start_idle_watchdog(state)
         return True
     except Exception as e:
+        logger.exception("启动浏览器失败")
         state["_last_browser_error"] = str(e)
         return False
 
@@ -681,7 +683,7 @@ async def _action_start(
             try:
                 await _action_stop(state)
             except Exception:
-                pass
+                logger.debug("停止旧浏览器实例失败，忽略", exc_info=True)
         else:
             return _tool_response(
                 json.dumps(
@@ -819,6 +821,7 @@ async def _action_start(
             json.dumps(result, ensure_ascii=False, indent=2),
         )
     except Exception as e:
+        logger.exception("启动浏览器失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Browser start failed: {e!s}"},
@@ -849,17 +852,17 @@ async def _action_stop(state: dict) -> ToolResponse:
                 try:
                     await state["context"].close()
                 except Exception:
-                    pass
+                    logger.debug("关闭 CDP 浏览器上下文失败，忽略", exc_info=True)
             if state["browser"] is not None:
                 try:
                     await state["browser"].close()
                 except Exception:
-                    pass
+                    logger.debug("关闭 CDP 浏览器失败，忽略", exc_info=True)
             if state["playwright"] is not None:
                 try:
                     await state["playwright"].stop()
                 except Exception:
-                    pass
+                    logger.debug("停止 CDP Playwright 失败，忽略", exc_info=True)
         finally:
             _reset_browser_state(state)
         return _tool_response(
@@ -887,6 +890,7 @@ async def _action_stop(state: dict) -> ToolResponse:
                 lambda: _sync_browser_close(state),
             )
         except Exception as e:
+            logger.exception("停止浏览器失败")
             return _tool_response(
                 json.dumps(
                     {"ok": False, "error": f"Browser stop failed: {e!s}"},
@@ -903,18 +907,19 @@ async def _action_stop(state: dict) -> ToolResponse:
                 try:
                     await state["context"].close()
                 except Exception:
-                    pass
+                    logger.debug("关闭浏览器上下文失败，忽略", exc_info=True)
             if state["browser"] is not None:
                 try:
                     await state["browser"].close()
                 except Exception:
-                    pass
+                    logger.debug("关闭浏览器失败，忽略", exc_info=True)
             if state["playwright"] is not None:
                 try:
                     await state["playwright"].stop()
                 except Exception:
-                    pass
+                    logger.debug("停止 Playwright 失败，忽略", exc_info=True)
         except Exception as e:
+            logger.exception("停止浏览器失败")
             return _tool_response(
                 json.dumps(
                     {"ok": False, "error": f"Browser stop failed: {e!s}"},
@@ -997,6 +1002,7 @@ async def _action_open(state: dict, url: str, page_id: str) -> ToolResponse:
             ),
         )
     except Exception as e:
+        logger.exception("打开页面失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Open failed: {e!s}"},
@@ -1051,6 +1057,7 @@ async def _action_navigate(
             ),
         )
     except Exception as e:
+        logger.exception("页面导航失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Navigate failed: {e!s}"},
@@ -1173,6 +1180,7 @@ async def _action_screenshot(
             ),
         )
     except Exception as e:
+        logger.exception("页面截图失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Screenshot failed: {e!s}"},
@@ -1310,6 +1318,7 @@ async def _action_click(  # pylint: disable=too-many-branches
             ),
         )
     except Exception as e:
+        logger.exception("点击元素失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Click failed: {e!s}"},
@@ -1425,6 +1434,7 @@ async def _action_type(
             ),
         )
     except Exception as e:
+        logger.exception("输入文本失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Type failed: {e!s}"},
@@ -1474,6 +1484,7 @@ async def _action_eval(state: dict, page_id: str, code: str) -> ToolResponse:
                 indent=2,
             )
         except TypeError:
+            logger.debug("eval 结果无法 JSON 序列化，回退为字符串", exc_info=True)
             out = json.dumps(
                 {"ok": True, "result": str(result)},
                 ensure_ascii=False,
@@ -1481,6 +1492,7 @@ async def _action_eval(state: dict, page_id: str, code: str) -> ToolResponse:
             )
         return _tool_response(out)
     except Exception as e:
+        logger.exception("执行 eval 失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Eval failed: {e!s}"},
@@ -1515,6 +1527,7 @@ async def _action_pdf(state: dict, page_id: str, path: str) -> ToolResponse:
             ),
         )
     except Exception as e:
+        logger.exception("生成 PDF 失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"PDF failed: {e!s}"},
@@ -1560,6 +1573,7 @@ async def _action_close(state: dict, page_id: str) -> ToolResponse:
             ),
         )
     except Exception as e:
+        logger.exception("关闭页面失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Close failed: {e!s}"},
@@ -1624,6 +1638,7 @@ async def _action_snapshot(
             out["filename"] = resolved
         return _tool_response(json.dumps(out, ensure_ascii=False, indent=2))
     except Exception as e:
+        logger.exception("生成快照失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Snapshot failed: {e!s}"},
@@ -1656,6 +1671,7 @@ async def _action_navigate_back(state: dict, page_id: str) -> ToolResponse:
             ),
         )
     except Exception as e:
+        logger.exception("页面后退失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Navigate back failed: {e!s}"},
@@ -1737,6 +1753,7 @@ async def _action_evaluate(
                 indent=2,
             )
         except TypeError:
+            logger.debug("evaluate 结果无法 JSON 序列化，回退为字符串", exc_info=True)
             out = json.dumps(
                 {"ok": True, "result": str(result)},
                 ensure_ascii=False,
@@ -1744,6 +1761,7 @@ async def _action_evaluate(
             )
         return _tool_response(out)
     except Exception as e:
+        logger.exception("执行 evaluate 失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Evaluate failed: {e!s}"},
@@ -1792,6 +1810,7 @@ async def _action_resize(
             ),
         )
     except Exception as e:
+        logger.exception("调整视口大小失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Resize failed: {e!s}"},
@@ -1901,6 +1920,7 @@ async def _action_handle_dialog(
             ),
         )
     except Exception as e:
+        logger.exception("处理对话框失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Handle dialog failed: {e!s}"},
@@ -1965,6 +1985,7 @@ async def _action_file_upload(
             ),
         )
     except Exception as e:
+        logger.exception("上传文件失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"File upload failed: {e!s}"},
@@ -2055,6 +2076,7 @@ async def _action_fill_form(
             ),
         )
     except Exception as e:
+        logger.exception("填写表单失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Fill form failed: {e!s}"},
@@ -2113,6 +2135,7 @@ async def _action_install() -> ToolResponse:
             ),
         )
     except subprocess.TimeoutExpired:
+        logger.exception("安装 Playwright 浏览器超时")
         return _tool_response(
             json.dumps(
                 {
@@ -2125,6 +2148,7 @@ async def _action_install() -> ToolResponse:
             ),
         )
     except Exception as e:
+        logger.exception("安装 Playwright 浏览器失败")
         return _tool_response(
             json.dumps(
                 {
@@ -2175,6 +2199,7 @@ async def _action_press_key(
             ),
         )
     except Exception as e:
+        logger.exception("按下按键失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Press key failed: {e!s}"},
@@ -2277,6 +2302,7 @@ async def _action_run_code(
                 indent=2,
             )
         except TypeError:
+            logger.debug("run_code 结果无法 JSON 序列化，回退为字符串", exc_info=True)
             out = json.dumps(
                 {"ok": True, "result": str(result)},
                 ensure_ascii=False,
@@ -2284,6 +2310,7 @@ async def _action_run_code(
             )
         return _tool_response(out)
     except Exception as e:
+        logger.exception("执行 run_code 失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Run code failed: {e!s}"},
@@ -2372,6 +2399,7 @@ async def _action_drag(
             ),
         )
     except Exception as e:
+        logger.exception("拖拽操作失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Drag failed: {e!s}"},
@@ -2440,6 +2468,7 @@ async def _action_hover(
             ),
         )
     except Exception as e:
+        logger.exception("悬停操作失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Hover failed: {e!s}"},
@@ -2517,6 +2546,7 @@ async def _action_select_option(
             ),
         )
     except Exception as e:
+        logger.exception("选择下拉选项失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Select option failed: {e!s}"},
@@ -2610,6 +2640,7 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
                 ),
             )
         except Exception as e:
+            logger.exception("新建标签页失败")
             return _tool_response(
                 json.dumps(
                     {"ok": False, "error": f"New tab failed: {e!s}"},
@@ -2698,6 +2729,7 @@ async def _action_wait_for(
             ),
         )
     except Exception as e:
+        logger.exception("等待元素失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"Wait failed: {e!s}"},
@@ -2763,6 +2795,7 @@ async def _action_clear_browser_cache(state: dict) -> ToolResponse:
                 ),
             )
         except Exception as exc:
+            logger.exception("通过 CDP 清理浏览器缓存失败")
             return _tool_response(
                 json.dumps(
                     {"ok": False, "error": f"CDP cache clear failed: {exc}"},
@@ -2796,6 +2829,7 @@ async def _action_clear_browser_cache(state: dict) -> ToolResponse:
                 shutil.rmtree(p)
                 removed.append(str(rel))
             except Exception as exc:
+                logger.warning("删除浏览器缓存目录失败: %s", rel, exc_info=True)
                 errors.append(f"{rel}: {exc}")
     if errors:
         return _tool_response(
@@ -2856,6 +2890,7 @@ async def _action_list_cdp_targets(
             targets = await loop.run_in_executor(None, _fetch_cdp_json, p)
             return p, targets
         except Exception:
+            logger.debug("探测 CDP 端口失败，跳过", exc_info=True)
             return p, None
 
     results = await asyncio.gather(*[probe(p) for p in ports_to_scan])
@@ -2973,6 +3008,7 @@ async def _action_connect_cdp(state: dict, cdp_url: str) -> ToolResponse:
             ),
         )
     except Exception as e:
+        logger.exception("通过 CDP 连接浏览器失败")
         return _tool_response(
             json.dumps(
                 {"ok": False, "error": f"CDP connect failed: {e!s}"},
@@ -3374,6 +3410,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
                     ),
                 )
             except Exception as e:
+                logger.exception("获取 cookies 失败")
                 return _tool_response(
                     json.dumps(
                         {"ok": False, "error": str(e)},
@@ -3429,6 +3466,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
                     ),
                 )
             except Exception as e:
+                logger.exception("设置 cookies 失败")
                 return _tool_response(
                     json.dumps(
                         {"ok": False, "error": str(e)},
@@ -3463,6 +3501,7 @@ async def browser_use(  # pylint: disable=R0911,R0912
                     ),
                 )
             except Exception as e:
+                logger.exception("清除 cookies 失败")
                 return _tool_response(
                     json.dumps(
                         {"ok": False, "error": str(e)},

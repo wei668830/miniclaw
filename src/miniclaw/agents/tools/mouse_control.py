@@ -9,6 +9,8 @@ import pyautogui
 import time
 from typing import Tuple, Optional, Literal
 
+from loguru import logger
+
 # 安全设置：让PyAutoGUI操作之间有短暂延迟，防止操作过快
 pyautogui.PAUSE = 0.1
 # 启用失败保护：将鼠标移到左上角会触发异常
@@ -497,6 +499,7 @@ def execute_mouse_tool(tool_name: str, arguments: dict):
             }
 
     except Exception as e:
+        logger.exception(f"执行鼠标工具 {tool_name} 失败")
         return {
             "success": False,
             "error": str(e),

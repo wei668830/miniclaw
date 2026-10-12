@@ -851,6 +851,7 @@ class LLMToolsManager:
             json.loads(s)
             return s
         except json.JSONDecodeError:
+            logger.opt(exception=True).debug('JSON 修复后仍无法解析，放弃修复')
             return None
 
     async def execute_tool(self, key, arguments: Optional[str] = None) -> ToolResponse:
@@ -869,7 +870,7 @@ class LLMToolsManager:
                     f"Argument format error: detected multiple JSON objects concatenated together ({arguments}). "
                     f"This tool does not support processing multiple objects at once. Please call the tool separately for each file/command."
                 )
-                logger.warning(f"Error executing tool {key} - {error_msg}")
+                logger.opt(exception=True).warning(f'Error executing tool {key} - {error_msg}')
                 return ToolResponse(
                     content=[
                         TextBlock(
@@ -886,18 +887,18 @@ class LLMToolsManager:
                 f"JSON parse error at line {e.lineno}, column {e.colno}: {e.msg}. "
                 f"Please check the arguments syntax and try again."
             )
-            logger.warning(error_msg)
+            logger.opt(exception=True).warning(error_msg)
 
             # Attempt to auto-repair common JSON truncation issues
             if arguments is not None:
                 repaired = self._repair_json(arguments)
                 if repaired is not None:
                     try:
-                        logger.info(f"Attempting to use repaired JSON: {repaired}")
+                        logger.opt(exception=True).info(f'Attempting to use repaired JSON: {repaired}')
                         args = json.loads(repaired)
                         return await self.get_tool_func(key)(**args)
                     except Exception:
-                        pass
+                        logger.opt(exception=True).debug('使用修复后的 JSON 执行工具失败')
 
             return ToolResponse(
                 content=[

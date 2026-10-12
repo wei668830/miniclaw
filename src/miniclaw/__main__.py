@@ -11,6 +11,7 @@ from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
+from loguru import logger
 
 from miniclaw.__version__ import __version__
 from miniclaw.constant import EnvVarLoader
@@ -66,6 +67,7 @@ def _port_available(host: str, port: int) -> bool:
             s.bind((host, port))
             return True
         except OSError:
+            logger.opt(exception=True).debug('端口可用性探测失败（视为端口被占用）')
             return False
 
 
@@ -88,6 +90,7 @@ def _wait_healthy(url: str, timeout: float = 30.0) -> bool:
                 if resp.status == 200:
                     return True
         except Exception:
+            logger.opt(exception=True).debug('健康检查请求失败，稍后重试')
             time.sleep(0.3)
     return False
 
@@ -105,6 +108,7 @@ def _pid_alive(pid: int) -> bool:
         os.kill(pid, 0)
         return True
     except OSError:
+        logger.opt(exception=True).debug('进程存活探测失败（进程不存在）')
         return False
 
 
@@ -118,6 +122,7 @@ def _acquire_single_instance_lock() -> bool:
             data = json.loads(lock.read_text(encoding="utf-8"))
             pid = int(data.get("pid", 0))
         except Exception:
+            logger.opt(exception=True).debug('读取锁文件失败，视为无存活实例')
             pid = 0
         if _pid_alive(pid):
             print(f"检测到 MiniClaw 已在运行（PID={pid}），请勿重复启动。")
@@ -126,7 +131,7 @@ def _acquire_single_instance_lock() -> bool:
         try:
             lock.unlink()
         except Exception:
-            pass
+            logger.opt(exception=True).debug('清理陈旧锁文件失败')
     import json
 
     lock.write_text(
@@ -140,7 +145,7 @@ def _release_lock() -> None:
     try:
         _lock_path().unlink()
     except Exception:
-        pass
+        logger.opt(exception=True).debug('释放锁文件失败')
 
 
 def _electron_cmd(frontend_dir: Path):
@@ -215,9 +220,11 @@ def run_ui(args):
         electron_proc.wait()
         return 0
     except FileNotFoundError as e:
+        logger.exception("启动桌面应用失败（缺少依赖）")
         print(f"启动失败（缺少依赖）: {e}")
         return 1
     except KeyboardInterrupt:
+        logger.opt(exception=True).debug('用户中断，退出桌面应用')
         return 0
     finally:
         # UI 关闭 ⇒ 后端同步销毁
@@ -225,16 +232,17 @@ def run_ui(args):
             try:
                 electron_proc.terminate()
             except Exception:
-                pass
+                logger.opt(exception=True).debug('终止 Electron 进程失败')
         if backend_proc is not None:
             try:
                 backend_proc.terminate()
                 try:
                     backend_proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
+                    logger.opt(exception=True).debug('后端进程未在超时内退出，强制结束')
                     backend_proc.kill()
             except Exception:
-                pass
+                logger.opt(exception=True).debug('终止后端进程失败')
         _release_lock()
 
 

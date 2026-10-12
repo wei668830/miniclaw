@@ -10,8 +10,11 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Optional
+
+from loguru import logger
 
 from ..base_llm_client import ToolResponse, TextBlock
 from ...constant import WORKING_DIR
@@ -31,7 +34,45 @@ def _kill_process_tree_win32(pid: int) -> None:
             timeout=10,
         )
     except Exception:
-        pass
+        logger.opt(exception=True).debug('终止 Windows 进程树失败')
+
+
+# 正在执行的 shell 子进程注册表：供「本轮被 Ctrl+C 中止」时杀掉仍在运行的子进程树。
+_ACTIVE_PROCS: dict[int, subprocess.Popen] = {}
+_ACTIVE_PROCS_LOCK = threading.Lock()
+
+
+def _register_process(proc: subprocess.Popen) -> None:
+    with _ACTIVE_PROCS_LOCK:
+        _ACTIVE_PROCS[proc.pid] = proc
+
+
+def _unregister_process(pid: int) -> None:
+    with _ACTIVE_PROCS_LOCK:
+        _ACTIVE_PROCS.pop(pid, None)
+
+
+def kill_all_active_shell_procs() -> None:
+    """终止所有仍在运行的 shell 子进程（及其子进程树）。
+
+    供 :func:`execute_shell_command` 在协程被取消（用户 Ctrl+C 中止本轮）时调用：
+    Windows 分支用 ``asyncio.to_thread`` 包裹同步子进程，线程内的 ``proc.wait()``
+    无法被 asyncio 取消打断，只能显式杀掉对应进程树。
+    """
+    with _ACTIVE_PROCS_LOCK:
+        procs = list(_ACTIVE_PROCS.items())
+    for pid, proc in procs:
+        try:
+            if proc.poll() is not None:
+                continue
+            if sys.platform == "win32":
+                _kill_process_tree_win32(pid)
+            else:
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except (ProcessLookupError, OSError):
+            logger.opt(exception=True).debug('查询或终止 shell 子进程失败')
+        except Exception:
+            logger.opt(exception=True).debug('终止 shell 子进程时发生异常')
 
 
 def _sanitize_win_cmd(cmd: str) -> str:
@@ -53,6 +94,7 @@ def _read_temp_file(path: str) -> str:
         with open(path, "rb") as f:
             return smart_decode(f.read())
     except OSError:
+        logger.opt(exception=True).debug('读取临时输出文件失败，返回空字符串')
         return ""
 
 
@@ -96,6 +138,7 @@ def _execute_subprocess_sync(
     stderr_path: str | None = None
     stdout_file = None
     stderr_file = None
+    proc: subprocess.Popen | None = None
 
     try:
         cmd = _sanitize_win_cmd(cmd)
@@ -116,6 +159,7 @@ def _execute_subprocess_sync(
             env=env,
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
         )
+        _register_process(proc)
 
         # Parent copies are no longer needed — the child inherited its own
         # handles via CreateProcess.  Closing here avoids holding the files
@@ -129,15 +173,17 @@ def _execute_subprocess_sync(
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
+            logger.opt(exception=True).debug('子进程执行超时，准备终止进程树')
             timed_out = True
             _kill_process_tree_win32(proc.pid)
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
+                logger.opt(exception=True).debug('子进程超时后仍未退出，尝试直接 kill')
                 try:
                     proc.kill()
                 except OSError:
-                    pass
+                    logger.opt(exception=True).debug('超时后 kill 子进程失败')
 
         stdout_str = _read_temp_file(stdout_path)
         stderr_str = _read_temp_file(stderr_path)
@@ -156,20 +202,23 @@ def _execute_subprocess_sync(
         return returncode, stdout_str, stderr_str
 
     except Exception as e:
+        logger.exception("执行子进程失败")
         return -1, "", str(e)
     finally:
+        if proc is not None:
+            _unregister_process(proc.pid)
         for f in (stdout_file, stderr_file):
             if f is not None:
                 try:
                     f.close()
                 except OSError:
-                    pass
+                    logger.opt(exception=True).debug('关闭临时文件句柄失败')
         for path in (stdout_path, stderr_path):
             if path is not None:
                 try:
                     os.unlink(path)
                 except OSError:
-                    pass
+                    logger.opt(exception=True).debug('删除临时文件失败')
 
 
 # pylint: disable=too-many-branches, too-many-statements
@@ -223,13 +272,18 @@ async def execute_shell_command(
         _check_kill_yourself_command(cmd)
         if sys.platform == "win32":
             # Windows: use thread pool to avoid asyncio subprocess limitations
-            returncode, stdout_str, stderr_str = await asyncio.to_thread(
-                _execute_subprocess_sync,
-                cmd,
-                str(working_dir),
-                timeout,
-                env,
-            )
+            try:
+                returncode, stdout_str, stderr_str = await asyncio.to_thread(
+                    _execute_subprocess_sync,
+                    cmd,
+                    str(working_dir),
+                    timeout,
+                    env,
+                )
+            except asyncio.CancelledError:
+                # 本轮被 Ctrl+C 中止：to_thread 中的子进程无法被 cancel 打断，显式杀进程树
+                kill_all_active_shell_procs()
+                raise
         else:
             proc = await asyncio.create_subprocess_shell(
                 cmd,
@@ -252,7 +306,21 @@ async def execute_shell_command(
                 stderr_str = smart_decode(stderr)
                 returncode = proc.returncode
 
+            except asyncio.CancelledError:
+                # 本轮被 Ctrl+C 中止：杀掉整个进程组，避免残留子进程
+                try:
+                    pgid = os.getpgid(proc.pid)
+                    os.killpg(pgid, signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    logger.opt(exception=True).debug('取消时终止进程组失败')
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=2)
+                except BaseException:
+                    logger.opt(exception=True).debug('取消时等待子进程结束失败')
+                raise
+
             except asyncio.TimeoutError:
+                logger.opt(exception=True).debug('命令执行超时，尝试终止整个进程组')
                 stderr_suffix = (
                     f"⚠️ TimeoutError: The command execution exceeded "
                     f"the timeout of {timeout} seconds. "
@@ -268,6 +336,7 @@ async def execute_shell_command(
                     try:
                         await asyncio.wait_for(proc.wait(), timeout=2)
                     except asyncio.TimeoutError:
+                        logger.opt(exception=True).debug('等待子进程退出超时，强制发送 SIGKILL')
                         os.killpg(pgid, signal.SIGKILL)
                         await asyncio.wait_for(proc.wait(), timeout=2)
 
@@ -278,6 +347,7 @@ async def execute_shell_command(
                             timeout=1,
                         )
                     except asyncio.TimeoutError:
+                        logger.opt(exception=True).debug('读取子进程剩余输出超时')
                         stdout, stderr = b"", b""
                     stdout_str = smart_decode(stdout)
                     stderr_str = smart_decode(stderr)
@@ -288,11 +358,12 @@ async def execute_shell_command(
                 except (ProcessLookupError, OSError):
                     # Process already gone or pgid lookup failed — fall back
                     # to direct kill on the process itself.
+                    logger.opt(exception=True).debug('终止进程组失败，回退到直接 kill 子进程')
                     try:
                         proc.kill()
                         await proc.wait()
                     except (ProcessLookupError, OSError):
-                        pass
+                        logger.opt(exception=True).debug('回退 kill 子进程失败')
                     stdout_str = ""
                     stderr_str = stderr_suffix
 
@@ -321,6 +392,7 @@ async def execute_shell_command(
         )
 
     except Exception as e:
+        logger.exception("Shell 命令执行失败")
         return ToolResponse(
             content=[
                 TextBlock(
@@ -335,6 +407,7 @@ def smart_decode(data: bytes) -> str:
     try:
         decoded_str = data.decode("utf-8")
     except UnicodeDecodeError:
+        logger.opt(exception=True).debug('UTF-8 解码失败，尝试使用本地编码')
         encoding = locale.getpreferredencoding(False) or "utf-8"
         decoded_str = data.decode(encoding, errors="replace")
 
