@@ -27,6 +27,11 @@ _ACTION_TO_FIELD = {
 
 @router.get("")
 async def get_context(session_id: str):
+    """GET /api/context：返回指定会话的上下文占用、预算阈值与覆盖项。
+
+    :param session_id: 会话 ID
+    :return: 含 used_tokens/window/soft/hard/overrides 的字典
+    """
     sm = get_session_manager()
     session = sm.get_or_load(session_id)
     soft, hard, window = get_context_budget()
@@ -43,6 +48,11 @@ async def get_context(session_id: str):
 
 @router.post("/action")
 async def context_action(req: ContextActionRequest):
+    """POST /api/context/action：对会话执行精简或预算覆盖/重置操作。
+
+    :param req: 上下文操作请求体（session_id、action、可选 value）
+    :return: 操作后的上下文信息字典
+    """
     sm = get_session_manager()
     session = sm.get_or_load(req.session_id)
 

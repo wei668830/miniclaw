@@ -56,6 +56,10 @@ if _USE_SYNC_PLAYWRIGHT:
 
 
     def _get_executor() -> futures.ThreadPoolExecutor:
+        """获取（惰性创建）供同步 Playwright 使用的全局单线程执行器。
+
+        :return: 全局复用的 ThreadPoolExecutor 实例
+        """
         global _executor
         if _executor is None:
             _executor = futures.ThreadPoolExecutor(
@@ -424,12 +428,20 @@ def _attach_page_listeners(state: dict, page, page_id: str) -> None:
     logs = state["console_logs"].setdefault(page_id, [])
 
     def on_console(msg):
+        """将页面控制台消息追加到该页日志列表的回调。
+
+        :param msg: Playwright 控制台消息对象
+        """
         logs.append({"level": msg.type, "text": msg.text})
 
     page.on("console", on_console)
     requests_list = state["network_requests"].setdefault(page_id, [])
 
     def on_request(req):
+        """将网络请求（URL、方法、资源类型）追加到列表的回调。
+
+        :param req: Playwright 请求对象
+        """
         requests_list.append(
             {
                 "url": req.url,
@@ -439,6 +451,10 @@ def _attach_page_listeners(state: dict, page, page_id: str) -> None:
         )
 
     def on_response(res):
+        """为已记录的对应请求补齐响应状态码的回调。
+
+        :param res: Playwright 响应对象
+        """
         for r in requests_list:
             if r.get("url") == res.url and "status" not in r:
                 r["status"] = res.status
@@ -449,12 +465,20 @@ def _attach_page_listeners(state: dict, page, page_id: str) -> None:
     dialogs = state["pending_dialogs"].setdefault(page_id, [])
 
     def on_dialog(dialog):
+        """将页面弹出的对话框加入待处理列表的回调。
+
+        :param dialog: Playwright 对话框对象
+        """
         dialogs.append(dialog)
 
     page.on("dialog", on_dialog)
     choosers = state["pending_file_choosers"].setdefault(page_id, [])
 
     def on_filechooser(chooser):
+        """将页面触发的文件选择器加入待处理列表的回调。
+
+        :param chooser: Playwright FileChooser 对象
+        """
         choosers.append(chooser)
 
     page.on("filechooser", on_filechooser)
@@ -472,6 +496,10 @@ def _attach_context_listeners(state: dict, context) -> None:
     register it and set as current."""
 
     def on_page(page):
+        """新标签页打开时的回调：分配 page_id 并注册监听，设为当前页。
+
+        :param page: 新打开的 Playwright Page 对象
+        """
         new_id = _next_page_id(state)
         state["refs"][new_id] = {}
         state["console_logs"][new_id] = []
@@ -644,6 +672,14 @@ async def _action_start(
         cdp_port: int = 0,
         ignore_https_errors: bool = True,  # 添加新参数
 ) -> ToolResponse:
+    """启动浏览器（默认无头，headed=True 时打开可见窗口）。
+
+    :param state: 工作区浏览器状态字典
+    :param headed: 为 True 时启动可见窗口，否则无头运行
+    :param cdp_port: 大于 0 时以 --remote-debugging-port 暴露 CDP 端口
+    :param ignore_https_errors: 是否忽略 HTTPS 证书错误
+    :return: 描述启动结果的 ToolResponse
+    """
     # 设置忽略 HTTPS 错误
     state["ignore_https_errors"] = ignore_https_errors
 
@@ -832,6 +868,11 @@ async def _action_start(
 
 
 async def _action_stop(state: dict) -> ToolResponse:
+    """停止或断开浏览器，并重置该工作区的浏览器状态。
+
+    :param state: 工作区浏览器状态字典
+    :return: 描述停止结果的 ToolResponse
+    """
     _cancel_idle_watchdog(state)
 
     # Check browser state based on mode
@@ -940,6 +981,13 @@ async def _action_stop(state: dict) -> ToolResponse:
 
 
 async def _action_open(state: dict, url: str, page_id: str) -> ToolResponse:
+    """在浏览器中新建页面并导航到指定 URL，按需自动启动浏览器。
+
+    :param state: 工作区浏览器状态字典
+    :param url: 要打开的地址
+    :param page_id: 新页面的标识
+    :return: 包含 page_id、url 的 ToolResponse
+    """
     url = (url or "").strip()
     if not url:
         return _tool_response(
@@ -1017,6 +1065,13 @@ async def _action_navigate(
         url: str,
         page_id: str,
 ) -> ToolResponse:
+    """将已存在的页面导航到指定 URL。
+
+    :param state: 工作区浏览器状态字典
+    :param url: 目标地址
+    :param page_id: 页面标识
+    :return: 描述导航结果的 ToolResponse
+    """
     url = (url or "").strip()
     if not url:
         return _tool_response(
@@ -1077,6 +1132,18 @@ async def _action_screenshot(
         element: str = "",  # pylint: disable=unused-argument
         frame_selector: str = "",
 ) -> ToolResponse:
+    """对页面、指定 ref 元素或 iframe 内容截图并保存到文件。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param path: 保存路径（相对路径解析到工作区 browser 目录），为空时自动生成
+    :param full_page: 是否截取整页
+    :param screenshot_type: 截图格式，png 或 jpeg
+    :param ref: 快照 ref，指定时仅截取该元素
+    :param element: 元素描述（当前未使用）
+    :param frame_selector: iframe 选择器，指定时截取该 iframe
+    :return: 包含保存路径的 ToolResponse
+    """
     path = (path or "").strip()
     if not path:
         ext = "jpeg" if screenshot_type == "jpeg" else "png"
@@ -1202,6 +1269,20 @@ async def _action_click(  # pylint: disable=too-many-branches
         modifiers_json: str = "",
         frame_selector: str = "",
 ) -> ToolResponse:
+    """点击由 ref 或 CSS 选择器定位的元素，支持双击、鼠标按键与修饰键。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param selector: CSS 选择器
+    :param ref: 快照 ref，优先于 selector
+    :param element: 元素描述（当前未使用）
+    :param wait: 点击前等待的毫秒数
+    :param double_click: 是否双击
+    :param button: 鼠标按键，left/right/middle
+    :param modifiers_json: 修饰键 JSON 数组，如 ["Shift","Control"]
+    :param frame_selector: iframe 选择器
+    :return: 描述点击结果的 ToolResponse
+    """
     ref = (ref or "").strip()
     selector = (selector or "").strip()
     if not ref and not selector:
@@ -1339,6 +1420,19 @@ async def _action_type(
         slowly: bool = False,
         frame_selector: str = "",
 ) -> ToolResponse:
+    """向输入框等元素填入文本，可选逐字符输入与回车提交。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param selector: CSS 选择器
+    :param ref: 快照 ref，优先于 selector
+    :param element: 元素描述（当前未使用）
+    :param text: 要输入的文本
+    :param submit: 输入后是否按 Enter 提交
+    :param slowly: 是否逐字符输入
+    :param frame_selector: iframe 选择器
+    :return: 描述输入结果的 ToolResponse
+    """
     ref = (ref or "").strip()
     selector = (selector or "").strip()
     if not ref and not selector:
@@ -1445,6 +1539,13 @@ async def _action_type(
 
 
 async def _action_eval(state: dict, page_id: str, code: str) -> ToolResponse:
+    """在页面上下文中执行 JavaScript 表达式或函数并返回结果。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param code: JavaScript 代码
+    :return: 包含执行结果的 ToolResponse
+    """
     code = (code or "").strip()
     if not code:
         return _tool_response(
@@ -1503,6 +1604,13 @@ async def _action_eval(state: dict, page_id: str, code: str) -> ToolResponse:
 
 
 async def _action_pdf(state: dict, page_id: str, path: str) -> ToolResponse:
+    """将页面导出为 PDF 文件。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param path: 保存路径，默认 page.pdf
+    :return: 包含保存路径的 ToolResponse
+    """
     path = (path or "page.pdf").strip() or "page.pdf"
     path = _resolve_output_path(path)
     page = _get_page(state, page_id)
@@ -1538,6 +1646,12 @@ async def _action_pdf(state: dict, page_id: str, path: str) -> ToolResponse:
 
 
 async def _action_close(state: dict, page_id: str) -> ToolResponse:
+    """关闭指定页面并清理其 refs、日志等关联状态。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 要关闭的页面标识
+    :return: 描述关闭结果的 ToolResponse
+    """
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -1589,6 +1703,14 @@ async def _action_snapshot(
         filename: str,
         frame_selector: str = "",
 ) -> ToolResponse:
+    """生成页面的 ARIA 可访问性快照并登记 ref 映射，供后续 ref 操作使用。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param filename: 可选的快照保存文件路径
+    :param frame_selector: iframe 选择器，指定时快照该 iframe
+    :return: 包含 snapshot、refs 与 url 的 ToolResponse
+    """
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -1649,6 +1771,12 @@ async def _action_snapshot(
 
 
 async def _action_navigate_back(state: dict, page_id: str) -> ToolResponse:
+    """让页面后退到上一个历史记录。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :return: 包含当前 url 的 ToolResponse
+    """
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -1689,6 +1817,16 @@ async def _action_evaluate(
         element: str = "",  # pylint: disable=unused-argument
         frame_selector: str = "",
 ) -> ToolResponse:
+    """在页面或指定 ref 元素上执行 JavaScript 并返回结果。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param code: JavaScript 代码
+    :param ref: 快照 ref，指定时在对应元素上执行
+    :param element: 元素描述（当前未使用）
+    :param frame_selector: iframe 选择器
+    :return: 包含执行结果的 ToolResponse
+    """
     code = (code or "").strip()
     if not code:
         return _tool_response(
@@ -1777,6 +1915,14 @@ async def _action_resize(
         width: int,
         height: int,
 ) -> ToolResponse:
+    """调整页面视口尺寸。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param width: 视口宽度（像素）
+    :param height: 视口高度（像素）
+    :return: 描述调整结果的 ToolResponse
+    """
     if width <= 0 or height <= 0:
         return _tool_response(
             json.dumps(
@@ -1826,6 +1972,14 @@ async def _action_console_messages(
         level: str,
         filename: str,
 ) -> ToolResponse:
+    """获取页面控制台消息，可按级别过滤，可选写入文件。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param level: 级别过滤，error/warning/info/debug
+    :param filename: 可选保存文件路径，指定时写入文件而不返回消息体
+    :return: 包含消息列表与文本的 ToolResponse，或文件保存信息
+    """
     level = (level or "info").strip().lower()
     order = ("error", "warning", "info", "debug")
     idx = order.index(level) if level in order else 2
@@ -1876,6 +2030,14 @@ async def _action_handle_dialog(
         accept: bool,
         prompt_text: str,
 ) -> ToolResponse:
+    """处理页面弹出的对话框：接受或关闭，prompt 可附带输入文本。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param accept: True 接受对话框，False 关闭
+    :param prompt_text: prompt 对话框的输入文本
+    :return: 描述处理结果的 ToolResponse
+    """
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -1935,6 +2097,13 @@ async def _action_file_upload(
         page_id: str,
         paths_json: str,
 ) -> ToolResponse:
+    """响应待处理的文件选择器，上传指定文件（路径为空时取消选择）。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param paths_json: 文件路径 JSON 数组字符串，为空表示取消
+    :return: 描述上传结果的 ToolResponse
+    """
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2000,6 +2169,13 @@ async def _action_fill_form(
         page_id: str,
         fields_json: str,
 ) -> ToolResponse:
+    """按快照 ref 批量填写表单字段（文本框、复选框、单选框、下拉框、滑块）。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param fields_json: 字段定义 JSON 数组，元素含 ref、type、value
+    :return: 描述填写结果的 ToolResponse
+    """
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2168,6 +2344,13 @@ async def _action_press_key(
         page_id: str,
         key: str,
 ) -> ToolResponse:
+    """在页面上模拟按下键盘按键。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param key: 按键名，如 "Enter"、"Control+a"
+    :return: 描述按键结果的 ToolResponse
+    """
     key = (key or "").strip()
     if not key:
         return _tool_response(
@@ -2215,6 +2398,14 @@ async def _action_network_requests(
         include_static: bool,
         filename: str,
 ) -> ToolResponse:
+    """获取页面已记录的网络请求，可选过滤静态资源或写入文件。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param include_static: 是否包含静态资源（图片/样式/字体/媒体）
+    :param filename: 可选保存文件路径
+    :return: 包含请求列表与文本的 ToolResponse，或文件保存信息
+    """
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2331,6 +2522,19 @@ async def _action_drag(
         end_element: str = "",  # pylint: disable=unused-argument
         frame_selector: str = "",
 ) -> ToolResponse:
+    """将元素拖拽到目标位置，可用 ref 或 CSS 选择器指定起点与终点。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param start_ref: 起点元素 ref
+    :param end_ref: 终点元素 ref
+    :param start_selector: 起点 CSS 选择器
+    :param end_selector: 终点 CSS 选择器
+    :param start_element: 起点元素描述（当前未使用）
+    :param end_element: 终点元素描述（当前未使用）
+    :param frame_selector: iframe 选择器
+    :return: 描述拖拽结果的 ToolResponse
+    """
     start_ref = (start_ref or "").strip()
     end_ref = (end_ref or "").strip()
     start_selector = (start_selector or "").strip()
@@ -2417,6 +2621,16 @@ async def _action_hover(
         selector: str = "",
         frame_selector: str = "",
 ) -> ToolResponse:
+    """将鼠标悬停在由 ref 或选择器定位的元素上。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param ref: 快照 ref
+    :param element: 元素描述（当前未使用）
+    :param selector: CSS 选择器
+    :param frame_selector: iframe 选择器
+    :return: 描述悬停结果的 ToolResponse
+    """
     ref = (ref or "").strip()
     selector = (selector or "").strip()
     if not ref and not selector:
@@ -2486,6 +2700,16 @@ async def _action_select_option(
         values_json: str = "",
         frame_selector: str = "",
 ) -> ToolResponse:
+    """在指定 ref 的 <select> 元素中选择一个或多个选项值。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param ref: 下拉框元素的快照 ref
+    :param element: 元素描述（当前未使用）
+    :param values_json: 选项值，JSON 数组或逗号分隔字符串
+    :param frame_selector: iframe 选择器
+    :return: 描述选择结果的 ToolResponse
+    """
     ref = (ref or "").strip()
     values = _parse_json_param(values_json, [])
     if not isinstance(values, list):
@@ -2562,6 +2786,14 @@ async def _action_tabs(  # pylint: disable=too-many-return-statements
         tab_action: str,
         index: int,
 ) -> ToolResponse:
+    """管理多标签页：列出、新建、关闭或切换当前页。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 当前页面标识
+    :param tab_action: 动作，list/new/close/select
+    :param index: 标签索引（tab_action 为 close/select 时使用，0 基）
+    :return: 描述操作结果的 ToolResponse
+    """
     tab_action = (tab_action or "").strip().lower()
     if not tab_action:
         return _tool_response(
@@ -2681,6 +2913,15 @@ async def _action_wait_for(
         text: str,
         text_gone: str,
 ) -> ToolResponse:
+    """按固定时长等待，或等待指定文本出现/消失。
+
+    :param state: 工作区浏览器状态字典
+    :param page_id: 页面标识
+    :param wait_time: 固定等待秒数
+    :param text: 等待其出现的文本
+    :param text_gone: 等待其消失的文本
+    :return: 描述等待结果的 ToolResponse
+    """
     page = _get_page(state, page_id)
     if not page:
         return _tool_response(
@@ -2886,6 +3127,11 @@ async def _action_list_cdp_targets(
     loop = asyncio.get_event_loop()
 
     async def probe(p: int):
+        """探测单个端口是否存在 CDP 端点。
+
+        :param p: 待探测的端口
+        :return: (端口, targets) 元组，探测失败时 targets 为 None
+        """
         try:
             targets = await loop.run_in_executor(None, _fetch_cdp_json, p)
             return p, targets

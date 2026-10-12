@@ -1,3 +1,9 @@
+"""MiniClaw 通用工具函数。
+
+提供字符串裁剪/脱敏、时间戳唯一 ID 生成、YAML frontmatter 解析、系统提示词
+合并，以及技能（SKILL.md）扫描与注入等辅助能力。
+"""
+
 import re
 import shutil
 import uuid

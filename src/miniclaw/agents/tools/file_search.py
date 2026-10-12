@@ -130,6 +130,11 @@ def _relative_display(target: Path, root: Path) -> str:
 
 
 def _make_response(text: str) -> ToolResponse:
+    """把纯文本包装成单文本块的 ToolResponse。
+
+    :param text: 文本内容
+    :return: 仅含一个文本块的 ToolResponse
+    """
     return ToolResponse(content=[TextBlock(type="text", text=text)])
 
 
@@ -530,6 +535,7 @@ async def grep_search(
     cancel = threading.Event()
 
     def _worker() -> tuple[list[str], str]:
+        """在线程中执行 grep 遍历，捕获异常并返回 (匹配行, 状态)。"""
         try:
             return _walk_and_grep(
                 search_root,
@@ -610,6 +616,7 @@ async def glob_search(
     cancel = threading.Event()
 
     def _worker() -> tuple[list[str], bool]:
+        """在线程中执行 glob 遍历，捕获异常并返回 (结果列表, 是否截断)。"""
         try:
             return _walk_and_glob(search_root, pattern, cancel)
         except Exception:

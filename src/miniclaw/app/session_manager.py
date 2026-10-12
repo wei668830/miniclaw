@@ -21,7 +21,10 @@ from .runtime import ChatSession
 
 
 class SessionManager:
+    """会话运行时容器：维护 session_id 到 ChatSession 的映射与当前会话。"""
+
     def __init__(self) -> None:
+        """初始化空的会话表、当前会话标记与并发锁。"""
         self._sessions: Dict[str, ChatSession] = {}
         self._current_id: Optional[str] = None
         self._lock = asyncio.Lock()
@@ -30,10 +33,19 @@ class SessionManager:
     # 基础查询
     # ------------------------------------------------------------------
     def _raw_dir(self) -> Path:
+        """返回会话历史原始目录（由环境变量或默认值决定）。
+
+        :return: 展开后的目录路径
+        """
         base = EnvVarLoader.get_str("MINICLAW_MEMORY_RAW_DIR", DEFAULT_MEMORY_RAW_DIR)
         return Path(base).expanduser()
 
     def create(self, activate: bool = True) -> ChatSession:
+        """新建并缓存一个会话，可选地设为当前会话。
+
+        :param activate: 是否将新会话切为当前会话
+        :return: 新建的 ChatSession 实例
+        """
         session = ChatSession()
         self._sessions[session.session_id] = session
         if activate:
@@ -42,6 +54,11 @@ class SessionManager:
         return session
 
     def get(self, session_id: str) -> Optional[ChatSession]:
+        """按 ID 从内存缓存取会话，不存在则返回 None。
+
+        :param session_id: 会话 ID
+        :return: 会话实例或 None
+        """
         return self._sessions.get(session_id)
 
     def get_or_load(self, session_id: str) -> ChatSession:
@@ -52,16 +69,30 @@ class SessionManager:
         return self._load_from_disk(session_id)
 
     def current(self) -> Optional[ChatSession]:
+        """返回当前激活的会话，未设置则返回 None。
+
+        :return: 当前会话实例或 None
+        """
         if self._current_id is None:
             return None
         return self._sessions.get(self._current_id)
 
     def activate(self, session_id: str) -> ChatSession:
+        """取（必要时从磁盘恢复）会话并设为当前会话。
+
+        :param session_id: 目标会话 ID
+        :return: 被激活的会话实例
+        """
         session = self.get_or_load(session_id)
         self._current_id = session.session_id
         return session
 
     def _load_from_disk(self, session_id: str) -> ChatSession:
+        """从磁盘历史恢复会话（保留 system 前缀），无历史则视为新会话并缓存。
+
+        :param session_id: 会话 ID
+        :return: 恢复或新建的会话实例
+        """
         session = ChatSession(session_id=session_id)
         store = HistoryStore(session_id)
         history = store.load_all()
@@ -138,6 +169,10 @@ class SessionManager:
     # ------------------------------------------------------------------
     @property
     def lock(self) -> asyncio.Lock:
+        """返回保护会话状态变更的并发锁。
+
+        :return: asyncio 锁对象
+        """
         return self._lock
 
 

@@ -1,3 +1,9 @@
+"""大模型连接配置器。
+
+从环境变量读取并归组各模型的连接参数（模型名、API Key、Base URL 等），
+为上层构建可用的大模型连接配置。
+"""
+
 import os
 from collections import defaultdict
 from typing import Optional
@@ -17,6 +23,7 @@ class LLMConfigurator:
     """
 
     def __init__(self):
+        """初始化配置器，读取环境变量 LLM_CLIENT_PROVIDER 作为客户端提供商。"""
         self.llm_client_provider = os.getenv("LLM_CLIENT_PROVIDER")
 
     @classmethod
@@ -31,6 +38,13 @@ class LLMConfigurator:
 
     @classmethod
     def load_llm_configs_by_group(cls):
+        """按环境变量前缀归组加载各模型的连接配置。
+
+        扫描所有以 LLM_MODEL / LLM_API_KEY / LLM_BASE_URL / CUSTOM_LLM_PROVIDER
+        等为后缀的环境变量，前缀作为分组名（无前缀的归入 "default"）。
+
+        :return: 以分组名为键、配置字典为值的字典
+        """
         suffixes = {
             "LLM_MODEL",
             "LLM_API_KEY",

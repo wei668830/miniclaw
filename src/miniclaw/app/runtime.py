@@ -83,6 +83,10 @@ class ChatSession:
     """单个会话的运行时状态。"""
 
     def __init__(self, session_id: Optional[str] = None):
+        """初始化会话：载入默认模型配置、运行模式、工具与空上下文。
+
+        :param session_id: 会话 ID；缺省时自动生成
+        """
         self.session_id = session_id or f"s{dt_uuid()}"
         self.created_at = datetime.now().isoformat(timespec="seconds")
 
@@ -132,6 +136,7 @@ class ChatSession:
     # 初始化 / 配置
     # ------------------------------------------------------------------
     def _init_messages(self) -> None:
+        """重置对话上下文为初始 system 前缀消息，并清空已加载技能。"""
         self.system_prompt = EnvVarLoader.get_str("CHAT_SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT)
         self.messages = [
             {"role": "system", "content": SHORT_SYSTEM_PROMPT},
@@ -146,13 +151,16 @@ class ChatSession:
         self.skills_loaded.clear()
 
     def _refresh_tools(self) -> None:
+        """按联网开关重新拉取可用工具列表（关闭时排除 web_search）。"""
         exclude = [] if self.web_search_enabled else ["web_search"]
         self.tools = llm_tools_manager.get_llm_tools(exclude=exclude)
 
     def _active_tools(self) -> Optional[List[dict]]:
+        """返回本次请求生效的工具列表（仅 agent 模式启用，chat 模式为 None）。"""
         return self.tools if self.runtime_mode == "agent" else None
 
     def _sampling_kwargs(self) -> dict:
+        """收集已设置的采样参数（temperature / max_tokens），未设置则不包含。"""
         kwargs: dict = {}
         if self.temperature is not None:
             kwargs["temperature"] = self.temperature
@@ -184,6 +192,10 @@ class ChatSession:
         return messages
 
     def _append_message(self, msg: dict) -> None:
+        """把一条消息追加到内存上下文并持久化到历史存储。
+
+        :param msg: 待追加的消息字典（含 role/content 等）
+        """
         self.messages.append(msg)
         try:
             self.history_store.append(msg)
@@ -194,12 +206,20 @@ class ChatSession:
     # 技能（对话式加载）
     # ------------------------------------------------------------------
     def list_skills(self) -> List[dict]:
+        """列出技能目录下所有可用技能（名称/描述/路径）。
+
+        :return: 技能信息字典列表
+        """
         return [
             {"name": name, "description": description, "path": str(path)}
             for (name, description, path) in scan_skills()
         ]
 
     def loaded_skills(self) -> List[dict]:
+        """列出本会话已加载的技能（名称/描述）。
+
+        :return: 已加载技能信息字典列表
+        """
         return [{"name": n, "description": d} for (n, d, _p) in self.skills_loaded]
 
     def load_skills(self, names: List[str]) -> dict:
@@ -249,6 +269,7 @@ class ChatSession:
         return estimate_messages_tokens(self.messages) + estimate_text_tokens(self._effective_system_prompt())
 
     async def ensure_context(self) -> None:
+        """检查上下文预算，达到软/硬阈值时按保留轮数精简历史消息。"""
         try:
             level, _used, _hard = check_budget(
                 self.messages, extra_tokens=estimate_text_tokens(self._effective_system_prompt())
@@ -260,6 +281,10 @@ class ChatSession:
             logger.opt(exception=True).debug('ensure_context 精简失败')
 
     def context_info(self) -> dict:
+        """返回上下文占用与预算信息（已用 token、窗口、软/硬阈值）。
+
+        :return: 含 used_tokens/window/soft/hard 的字典
+        """
         soft, hard, window = get_context_budget()
         return {"used_tokens": self._used_tokens(), "window": window, "soft": soft, "hard": hard}
 
@@ -275,6 +300,10 @@ class ChatSession:
         self.usage["turns"] += 1
 
     def cost_info(self) -> dict:
+        """返回本会话累计用量（token 与费用）的副本。
+
+        :return: 用量字典副本
+        """
         return dict(self.usage)
 
     # ------------------------------------------------------------------
@@ -319,6 +348,10 @@ class ChatSession:
     # 快照
     # ------------------------------------------------------------------
     def snapshot(self) -> dict:
+        """导出会话快照（ID、时间、模式、模型、消息、已加载技能与用量）。
+
+        :return: 会话快照字典
+        """
         return {
             "session_id": self.session_id,
             "created_at": self.created_at,
@@ -330,6 +363,10 @@ class ChatSession:
         }
 
     def summary(self) -> str:
+        """提取首条用户消息正文作为会话摘要（裁剪至 60 字符）。
+
+        :return: 摘要文本；无用户消息时为空串
+        """
         for msg in self.messages:
             if msg.get("role") == "user":
                 content = msg.get("content")

@@ -1,3 +1,9 @@
+"""大模型工具管理器。
+
+维护可供大模型调用的内置工具（注册、查询、执行），并处理工具调用参数的
+JSON 解析与容错修复，供上层智能体在执行工具调用时使用。
+"""
+
 import json
 from typing import Optional, List
 
@@ -776,6 +782,13 @@ BUILTIN_TOOLS = {
 
 
 def _get_enabled_tools():
+    """根据环境变量计算实际启用的工具名列表。
+
+    读取 LLM_ENABLED_TOOLS（支持 "*"/"all" 表示全部）与 LLM_DISABLED_TOOLS，
+    先应用启用集合再移除禁用项。
+
+    :return: 启用的工具名称列表
+    """
     enabled_tools_str = EnvVarLoader.get_str("LLM_ENABLED_TOOLS")
     disabled_tools_str = EnvVarLoader.get_str("LLM_DISABLED_TOOLS")
 
@@ -855,6 +868,16 @@ class LLMToolsManager:
             return None
 
     async def execute_tool(self, key, arguments: Optional[str] = None) -> ToolResponse:
+        """异步执行指定工具。
+
+        解析 arguments（JSON 字符串）为关键字参数并调用对应工具；当 JSON 解析
+        失败时，会识别「多个 JSON 对象拼接」的场景并尝试自动修复，最终以
+        ToolResponse 形式返回结果或错误信息。
+
+        :param key: 工具名称
+        :param arguments: 工具参数的 JSON 字符串，缺省时以空参数调用
+        :return: 封装文本/图片内容块的 ToolResponse
+        """
         try:
             if arguments is not None:
                 # First, try to parse the JSON normally

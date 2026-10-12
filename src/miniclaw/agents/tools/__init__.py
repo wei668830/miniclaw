@@ -1,3 +1,9 @@
+"""MiniClaw 内置工具子包。
+
+统一导出文件读写/搜索、Shell/Browser 控制、截图、图片查看、时间与联网搜索等
+可供大模型调用的工具函数。
+"""
+
 from .browser_control import browser_use
 from .desktop_screenshot import desktop_screenshot
 from .file_io import read_file, write_file, edit_file, append_file, tail_file

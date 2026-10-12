@@ -282,6 +282,7 @@ async def web_search(
     """
 
     def _err(text: str) -> ToolResponse:
+        """构造错误/结果文本对应的 ToolResponse。"""
         return ToolResponse(content=[TextBlock(type="text", text=text)])
 
     q = (query or "").strip()

@@ -1,3 +1,9 @@
+"""FastAPI 应用装配入口。
+
+创建 ``app`` 实例、注册日志与生命周期钩子、挂载全部路由与 CORS 中间件，
+并提供根路径、版本与健康检查端点。
+"""
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -42,6 +48,7 @@ app.add_middleware(
 
 @app.get("/")
 async def read_root():
+    """根路径：返回 MiniClaw 服务简介。"""
     return {
         "message": (
             "MiniClaw is specialized in agents orchestration and tool management. "

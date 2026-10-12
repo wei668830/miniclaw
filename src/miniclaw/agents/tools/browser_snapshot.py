@@ -66,28 +66,42 @@ STRUCTURAL_ROLES = frozenset(
 
 
 def _get_indent_level(line: str) -> int:
+    """根据行首缩进空格数推算快照树中的层级（每 2 个空格为 1 级）。
+
+    :param line: aria 快照中的一行文本
+    :return: 缩进层级（整数）
+    """
     m = re.match(r"^(\s*)", line)
     return int(len(m.group(1)) / 2) if m else 0
 
 
 def _create_tracker() -> dict[str, Any]:
+    """创建跟踪各「角色:名称」重复次数的状态跟踪器。
+
+    :return: 含 get_next_index / track_ref / get_duplicate_keys / get_key
+        四个回调的字典
+    """
     counts: dict[str, int] = {}
     refs_by_key: dict[str, list[str]] = {}
 
     def get_key(role: str, name: str | None) -> str:
+        """拼接「角色:名称」作为唯一键。"""
         return f"{role}:{name or ''}"
 
     def get_next_index(role: str, name: str | None) -> int:
+        """返回并自增该键的出现序号（从 0 开始）。"""
         key = get_key(role, name)
         current = counts.get(key, 0)
         counts[key] = current + 1
         return current
 
     def track_ref(role: str, name: str | None, ref: str) -> None:
+        """记录某个键关联的 ref。"""
         key = get_key(role, name)
         refs_by_key.setdefault(key, []).append(ref)
 
     def get_duplicate_keys() -> set[str]:
+        """返回出现次数大于 1 的键集合。"""
         return {k for k, refs in refs_by_key.items() if len(refs) > 1}
 
     return {
@@ -102,6 +116,11 @@ def _remove_nth_from_non_duplicates(
     refs: dict[str, dict],
     tracker: dict,
 ) -> None:
+    """清除未重复元素上的 ``nth`` 字段（仅重复元素才需要 nth 区分）。
+
+    :param refs: ref -> 元素信息 的映射，原地修改
+    :param tracker: ``_create_tracker`` 返回的状态跟踪器
+    """
     dup_keys = tracker["get_duplicate_keys"]()
     for _, data in list(refs.items()):
         key = tracker["get_key"](data["role"], data.get("name"))
@@ -110,6 +129,11 @@ def _remove_nth_from_non_duplicates(
 
 
 def _compact_tree(tree: str) -> str:
+    """移除不含 ref/文本、且子树中也无 ref 的纯结构行，压缩快照。
+
+    :param tree: 原始快照文本
+    :return: 压缩后的快照文本
+    """
     lines = tree.split("\n")
     result = []
     for i, line in enumerate(lines):
@@ -139,6 +163,15 @@ def _process_line(  # pylint: disable=too-many-return-statements
     tracker: dict,
     next_ref: Any,
 ) -> str | None:
+    """处理单行快照：按选项过滤，并为交互/内容元素分配 ref，返回增强后的行。
+
+    :param line: 快照单行文本
+    :param refs: ref -> 元素信息 的映射，命中时写入
+    :param options: 含 interactive / compact / maxDepth 的选项
+    :param tracker: 状态跟踪器
+    :param next_ref: 生成下一个 ref 的回调
+    :return: 增强后的行文本；被过滤时返回 None
+    """
     depth = _get_indent_level(line)
     max_depth_val = options.get("maxDepth")
     if max_depth_val is not None and depth > max_depth_val:
@@ -201,6 +234,10 @@ def build_role_snapshot_from_aria(
     counter = [0]
 
     def next_ref() -> str:
+        """生成下一个递增的元素引用标识（如 ``e1``、``e2``）。
+
+        :return: 形如 ``e{n}`` 的引用字符串
+        """
         counter[0] += 1
         return f"e{counter[0]}"
 

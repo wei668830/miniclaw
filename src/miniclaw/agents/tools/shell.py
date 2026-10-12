@@ -43,11 +43,19 @@ _ACTIVE_PROCS_LOCK = threading.Lock()
 
 
 def _register_process(proc: subprocess.Popen) -> None:
+    """把子进程登记到全局注册表，供中止时统一清理。
+
+    :param proc: 正在运行的子进程对象
+    """
     with _ACTIVE_PROCS_LOCK:
         _ACTIVE_PROCS[proc.pid] = proc
 
 
 def _unregister_process(pid: int) -> None:
+    """从全局注册表中移除指定 PID 的子进程。
+
+    :param pid: 子进程 PID
+    """
     with _ACTIVE_PROCS_LOCK:
         _ACTIVE_PROCS.pop(pid, None)
 
@@ -404,6 +412,11 @@ async def execute_shell_command(
 
 
 def smart_decode(data: bytes) -> str:
+    """优先按 UTF-8 解码字节，失败则回退到系统首选编码（非法字符替换）。
+
+    :param data: 待解码的原始字节
+    :return: 解码并去除首尾换行后的字符串
+    """
     try:
         decoded_str = data.decode("utf-8")
     except UnicodeDecodeError:

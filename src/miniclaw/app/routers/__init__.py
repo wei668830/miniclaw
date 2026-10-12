@@ -1,3 +1,5 @@
+"""FastAPI 路由聚合：汇总各子路由为 ALL_ROUTERS 供应用统一挂载。"""
+
 from .chat_router import router as chat_router
 from .config_router import router as config_router
 from .context_router import router as context_router

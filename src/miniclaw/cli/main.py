@@ -1,3 +1,10 @@
+"""CLI 主入口与命令行交互。
+
+提供异步入口 ``cli_run`` 与交互界面 ``CommandLineInteraction``：负责会话初始化、
+斜杠命令分发、流式对话主循环、上下文预算与记忆精简、用量/费用统计，以及执行期
+「Ctrl+C 中止当前轮次」的 SIGINT 处理。
+"""
+
 import asyncio
 import json
 import os
@@ -95,6 +102,13 @@ class CommandLineInteraction:
             self,
             **kwargs
     ):
+        """初始化命令行交互界面。
+
+        加载 LLM 配置，初始化会话状态、记忆文件、历史存储与运行时标志，登记当前
+        会话元数据，并打印欢迎信息。
+
+        :param kwargs: 预留的扩展参数（当前未使用）
+        """
         self.provider = EnvVarLoader.get_str("LLM_CLIENT_PROVIDER", "litellm")
         # 分组加载 LLM 配置
         self.llms = LLMConfigurator.load_llm_configs_by_group()
@@ -394,6 +408,10 @@ class CommandLineInteraction:
         self.skills.extend(scan_skills())
 
     def _history_raw_dir(self) -> Path:
+        """返回会话历史（JSONL）原始文件所在目录。
+
+        :return: 展开后的历史目录路径
+        """
         return Path(
             EnvVarLoader.get_str("MINICLAW_MEMORY_RAW_DIR", DEFAULT_MEMORY_RAW_DIR)
         ).expanduser()
@@ -986,6 +1004,10 @@ class CommandLineInteraction:
             logger.opt(exception=True).debug('获取余额基线失败')
 
     def _format_usage(self) -> str:
+        """把本次会话累计的 token 用量格式化为多行展示文本。
+
+        :return: 含调用轮数、输入/输出/合计 tokens 的文本
+        """
         u = self.usage
         return (
             "本次对话累计 token 用量：\n"
@@ -1128,6 +1150,7 @@ class CommandLineInteraction:
             self._prev_sigint = None
 
     def _restore_sigint_handler(self) -> None:
+        """恢复安装自定义处理器之前注册的 SIGINT 处理器（若存在）。"""
         if self._prev_sigint is not None:
             try:
                 signal.signal(signal.SIGINT, self._prev_sigint)
@@ -1354,6 +1377,7 @@ class CommandLineInteraction:
 
 
 async def cli_run():
+    """CLI 异步入口：构造交互界面并运行主循环，退出时保证清理资源。"""
     cli = CommandLineInteraction()
     try:
         await cli.run()

@@ -84,6 +84,11 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def _normalize_level(level: str) -> str:
+    """归一化日志级别为 loguru 合法级别，非法或空值回退为 ``INFO``。
+
+    :param level: 原始级别字符串
+    :return: 大写且合法的级别名
+    """
     value = (level or "INFO").strip().upper()
     return value if value in _VALID_LEVELS else "INFO"
 
@@ -92,6 +97,10 @@ class InterceptHandler(logging.Handler):
     """将标准库 ``logging`` 记录转发到 loguru 的处理器。"""
 
     def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
+        """将一条标准库 ``logging`` 记录转发到 loguru 输出。
+
+        :param record: 标准库日志记录
+        """
         # 将标准库 level 映射到 loguru level
         try:
             level: str | int = logger.level(record.levelname).name
@@ -135,6 +144,11 @@ def install_asyncio_exception_handler(loop: Optional[asyncio.AbstractEventLoop] 
 
 
 def _asyncio_exception_handler(loop: asyncio.AbstractEventLoop, context: dict) -> None:
+    """asyncio 事件循环的默认异常处理器，将未处理异常带堆栈记录下来。
+
+    :param loop: 事件循环
+    :param context: asyncio 提供的异常上下文字典
+    """
     exc = context.get("exception")
     message = context.get("message", "未处理的 asyncio 异常")
     if exc is not None:

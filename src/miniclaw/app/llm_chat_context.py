@@ -1,3 +1,5 @@
+"""聊天上下文持久化：按 CID 以 JSONL 逐行追加/读取消息。"""
+
 from pathlib import Path
 import json
 from typing import List, Optional

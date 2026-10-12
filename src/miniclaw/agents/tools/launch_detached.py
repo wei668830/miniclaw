@@ -26,6 +26,7 @@ class TempScriptManager:
     """临时脚本管理器 - 定期清理"""
 
     def __init__(self):
+        """初始化临时脚本管理器（延迟创建目录与清理线程）。"""
         self.temp_dir = None
         self.initialized = False
         self.cleanup_interval_hours = 1  # 每小时清理一次
@@ -59,6 +60,7 @@ class TempScriptManager:
         """启动后台清理线程"""
 
         def cleanup_worker():
+            """后台循环：按设定间隔定期清理过期临时脚本。"""
             while not self._stop_cleanup:
                 time.sleep(self.cleanup_interval_hours * 3600)
                 if not self._stop_cleanup:

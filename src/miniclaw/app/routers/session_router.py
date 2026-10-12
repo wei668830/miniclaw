@@ -13,12 +13,22 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"], dependencies=[Depe
 
 @router.get("")
 async def list_sessions(limit: int = 10):
+    """GET /api/sessions：列出最近会话及当前会话 ID。
+
+    :param limit: 返回的最大条数
+    :return: 含 sessions 列表与 current_session_id 的字典
+    """
     sm = get_session_manager()
     return {"sessions": sm.list_sessions(limit=limit), "current_session_id": sm.current().session_id if sm.current() else None}
 
 
 @router.post("")
 async def create_session(req: NewSessionRequest):
+    """POST /api/sessions：新建会话（技能状态归零），可选激活。
+
+    :param req: 新建会话请求体
+    :return: 新会话的 ID、时间、模型、模式与已加载技能
+    """
     sm = get_session_manager()
     session = sm.create(activate=req.activate)
     return {
@@ -32,6 +42,11 @@ async def create_session(req: NewSessionRequest):
 
 @router.get("/{session_id}")
 async def get_session(session_id: str):
+    """GET /api/sessions/{session_id}：返回指定会话的完整快照。
+
+    :param session_id: 会话 ID
+    :return: 会话快照字典
+    """
     sm = get_session_manager()
     session = sm.get_or_load(session_id)
     return session.snapshot()
@@ -39,6 +54,11 @@ async def get_session(session_id: str):
 
 @router.post("/{session_id}/activate")
 async def activate_session(session_id: str):
+    """POST /api/sessions/{session_id}/activate：把指定会话设为当前会话。
+
+    :param session_id: 会话 ID
+    :return: 含 session_id 与 activated 的字典
+    """
     sm = get_session_manager()
     session = sm.activate(session_id)
     return {"session_id": session.session_id, "activated": True}
@@ -62,6 +82,11 @@ async def resume_session(session_id: str):
 
 @router.post("/{session_id}/clear")
 async def clear_session(session_id: str):
+    """POST /api/sessions/{session_id}/clear：重置指定会话的上下文。
+
+    :param session_id: 会话 ID
+    :return: 含 session_id 与 cleared 的字典
+    """
     sm = get_session_manager()
     session = sm.get_or_load(session_id)
     session._init_messages()
@@ -70,6 +95,11 @@ async def clear_session(session_id: str):
 
 @router.get("/{session_id}/export", response_class=PlainTextResponse)
 async def export_session(session_id: str):
+    """GET /api/sessions/{session_id}/export：将会话导出为 Markdown 文本。
+
+    :param session_id: 会话 ID
+    :return: 纯文本响应（Markdown 内容）
+    """
     sm = get_session_manager()
     session = sm.get_or_load(session_id)
     lines = [f"# MiniClaw 会话导出\n", f"- 会话 ID: {session.session_id}\n", f"- 导出时间: {session.created_at}\n"]

@@ -1,3 +1,10 @@
+"""MiniClaw 全局常量定义。
+
+包含应用启动 banner（``MINICLAW_LOG``）、工作目录 ``WORKING_DIR``、记忆与
+上下文预算的默认阈值、自主执行提示词，以及环境变量读取工具类
+:class:`EnvVarLoader` 等。
+"""
+
 import os
 from pathlib import Path
 

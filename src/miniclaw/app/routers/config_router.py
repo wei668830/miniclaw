@@ -14,6 +14,11 @@ router = APIRouter(prefix="/api/config", tags=["config"], dependencies=[Depends(
 
 
 def _current_or_create(sm) -> ChatSession:
+    """返回当前会话，不存在则新建并激活一个。
+
+    :param sm: 会话管理器
+    :return: 当前（或新建）的会话实例
+    """
     session = sm.current()
     if session is None:
         session = sm.create(activate=True)
@@ -21,6 +26,11 @@ def _current_or_create(sm) -> ChatSession:
 
 
 def _config_payload(session: ChatSession) -> dict:
+    """把会话的模型配置整理为响应字典（api_key 做掩码）。
+
+    :param session: 目标会话
+    :return: 配置响应字典
+    """
     return {
         "provider": session.provider,
         "model": session.model,
@@ -36,12 +46,21 @@ def _config_payload(session: ChatSession) -> dict:
 
 @router.get("")
 async def get_config():
+    """GET /api/config：返回当前会话的模型与运行配置。
+
+    :return: 配置响应字典
+    """
     sm = get_session_manager()
     return _config_payload(_current_or_create(sm))
 
 
 @router.patch("")
 async def update_config(req: ConfigUpdateRequest):
+    """PATCH /api/config：按提供的字段更新当前会话配置。
+
+    :param req: 配置更新请求体
+    :return: 更新后的配置响应字典
+    """
     sm = get_session_manager()
     session = _current_or_create(sm)
     if req.model is not None:
@@ -61,6 +80,10 @@ async def update_config(req: ConfigUpdateRequest):
 
 @router.get("/llms")
 async def list_llms():
+    """GET /api/config/llms：列出预置大模型分组并标记当前使用项。
+
+    :return: 含 llms 列表的字典
+    """
     sm = get_session_manager()
     session = _current_or_create(sm)
     configs = LLMConfigurator.load_llm_configs_by_group()
@@ -77,6 +100,11 @@ async def list_llms():
 
 @router.post("/llm/use")
 async def use_llm(req: LLMUseRequest):
+    """POST /api/config/llm/use：按名称把预置大模型配置应用到当前会话。
+
+    :param req: 含目标配置名的请求体
+    :return: 含 ok 与配置响应字典的结果
+    """
     sm = get_session_manager()
     session = _current_or_create(sm)
     configs = LLMConfigurator.load_llm_configs_by_group()
@@ -92,6 +120,11 @@ async def use_llm(req: LLMUseRequest):
 
 @router.post("/mode")
 async def set_mode(req: ModeRequest):
+    """POST /api/config/mode：设置当前会话的运行模式（agent/chat）。
+
+    :param req: 运行模式请求体
+    :return: 含 runtime_mode 的字典
+    """
     sm = get_session_manager()
     session = _current_or_create(sm)
     session.runtime_mode = req.mode
@@ -100,6 +133,11 @@ async def set_mode(req: ModeRequest):
 
 @router.post("/web-search")
 async def set_web_search(req: WebSearchRequest):
+    """POST /api/config/web-search：开关当前会话的联网搜索并刷新工具。
+
+    :param req: 联网搜索开关请求体
+    :return: 含 web_search_enabled 的字典
+    """
     sm = get_session_manager()
     session = _current_or_create(sm)
     session.web_search_enabled = req.enabled

@@ -1,3 +1,9 @@
+"""Planner：计划制定器。
+
+根据用户需求驱动大模型生成可落地的 Markdown 计划文件（带 YAML frontmatter 与进度
+摘要），并把计划文件登记为「活跃计划」；同时支持从既有计划文件恢复执行未完成步骤。
+"""
+
 import re
 from pathlib import Path
 
@@ -12,7 +18,14 @@ from ..utils.common import dt_uuid, extract_yaml_frontmatter
 
 
 class Planner(Actor):
+    """计划制定器：生成计划文件并登记活跃计划，支持从中断处恢复执行。"""
+
     def __init__(self, session_id: str | None = None, **kwargs):
+        """初始化计划制定器。
+
+        :param session_id: 关联的会话标识（写入计划文件 frontmatter）
+        :param kwargs: 透传给 Actor 的连接配置；默认排除子代理与计划器工具
+        """
         if "exclude_tools" not in kwargs:
             kwargs["exclude_tools"] = [LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER]
 
@@ -77,6 +90,11 @@ class Planner(Actor):
         return ""
 
     async def make(self, requirements: str) -> ToolResponse:
+        """制定计划：驱动大模型生成计划文件并登记为活跃计划。
+
+        :param requirements: 用户需求描述
+        :return: 含计划文件路径与进度摘要（或失败原因）的 ToolResponse
+        """
         await self._stream(requirements=requirements)
 
         if self.path.exists():

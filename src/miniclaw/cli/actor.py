@@ -1,3 +1,8 @@
+"""Actor：具备流式对话能力的基础大模型执行体。
+
+封装大模型客户端、可用工具集合与消息历史，供命令行交互、记忆精简、计划器等复用。
+"""
+
 from typing import List
 
 from loguru import logger
@@ -8,6 +13,8 @@ from .stream_runner import run_stream_round
 
 
 class Actor:
+    """基础执行体：封装大模型客户端、可用工具与消息历史，提供流式与单轮对话能力。"""
+
     def __init__(
             self,
             usage_type=None,
@@ -18,6 +25,16 @@ class Actor:
             api_key: str = None,
             custom_llm_provider: str = None,
     ):
+        """初始化执行体：装配大模型客户端、可用工具与空的消息历史。
+
+        :param usage_type: 大模型使用场景；为 None 时默认取 LLM_USAGE_MASTER
+        :param include_tools: 仅保留的工具名白名单
+        :param exclude_tools: 需要排除的工具名黑名单
+        :param model: 模型名称
+        :param base_url: 接入点地址
+        :param api_key: 接入点密钥
+        :param custom_llm_provider: 自定义提供方标识
+        """
         # Import here to avoid circular import
         from ..agents import get_llm_client, llm_tools_manager
         from ..agents.llm_configurator import LLM_USAGE_MASTER

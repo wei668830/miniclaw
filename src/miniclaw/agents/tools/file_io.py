@@ -1,3 +1,7 @@
+"""文件读写工具：read/write/edit/append/tail file 的 LLM 工具实现。
+
+相对路径会基于当前工作区（或 WORKING_DIR）解析，统一返回 ToolResponse。
+"""
 import os
 from collections import deque
 from pathlib import Path

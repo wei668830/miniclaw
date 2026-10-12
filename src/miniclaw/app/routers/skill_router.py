@@ -17,6 +17,10 @@ router = APIRouter(prefix="/api/skills", tags=["skills"], dependencies=[Depends(
 
 @router.get("")
 async def list_skills():
+    """GET /api/skills：列出技能目录下全部可用技能（与会话无关）。
+
+    :return: 含 skills 列表的字典
+    """
     sm = get_session_manager()
     # 技能列表与具体会话无关（扫描技能目录）
     from ...utils.common import scan_skills
@@ -30,6 +34,11 @@ async def list_skills():
 
 @router.get("/loaded")
 async def loaded_skills(session_id: str):
+    """GET /api/skills/loaded：返回指定会话已加载的技能。
+
+    :param session_id: 会话 ID
+    :return: 含 skills_loaded 的字典（会话不存在时为空）
+    """
     sm = get_session_manager()
     session = sm.get(session_id)
     if session is None:
@@ -39,6 +48,11 @@ async def loaded_skills(session_id: str):
 
 @router.post("/load")
 async def load_skills(req: SkillLoadRequest):
+    """POST /api/skills/load：把技能排入会话，等待下一条用户消息注入。
+
+    :param req: 技能加载请求体
+    :return: 含 pending/already_loaded/skills_loaded 的字典
+    """
     sm = get_session_manager()
     session = sm.get(req.session_id)
     if session is None:

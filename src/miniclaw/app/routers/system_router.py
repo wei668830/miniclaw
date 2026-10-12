@@ -13,6 +13,10 @@ router = APIRouter(prefix="/api", tags=["system"], dependencies=[Depends(require
 
 @router.get("/system/info")
 async def system_info():
+    """GET /api/system/info：返回版本、provider、模型与当前会话运行信息。
+
+    :return: 系统信息字典
+    """
     sm = get_session_manager()
     cur = sm.current()
     return {

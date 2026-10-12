@@ -1,3 +1,8 @@
+"""基于 litellm 的大模型客户端实现。
+
+封装统一的 chat / stream 接口，并附带 token 与费用估算、异常信息格式化等辅助逻辑。
+"""
+
 import inspect
 import os
 from typing import AsyncIterator, Optional
@@ -162,6 +167,7 @@ def _format_llm_error(e: Exception) -> str:
 
 
 class LiteLLMClient(BaseLLMClient):
+    """基于 litellm 库的大模型客户端，实现非流式与流式对话。"""
 
     @classmethod
     def _build_completion_kwargs(
@@ -170,6 +176,15 @@ class LiteLLMClient(BaseLLMClient):
             messages: list[dict],
             **kwargs
     ) -> dict:
+        """构建并校验 litellm 请求参数。
+
+        借助 LLMConfigurator 归一化连接配置，注入 messages，移除无效字段，
+        并打印脱敏后的请求信息。
+
+        :param messages: 对话消息列表
+        :param kwargs: 其余连接/请求参数
+        :return: 可直接传入 litellm 的请求参数字典
+        """
         kwargs = LLMConfigurator.config_connection(**kwargs)
 
         kwargs["messages"] = messages
@@ -192,6 +207,13 @@ class LiteLLMClient(BaseLLMClient):
             llm_usage_type: str = LLM_USAGE_MASTER,
             **kwargs
     ) -> LLMResponse:
+        """发起非流式对话并返回完整结果。
+
+        :param messages: 对话消息列表
+        :param llm_usage_type: LLM 使用类型，用于选择对应配置
+        :param kwargs: 其余请求参数
+        :return: 包含内容、工具调用、token 用量与费用的 LLMResponse；出错时 error 字段携带错误信息
+        """
         try:
             params = self._build_completion_kwargs(
                 messages=messages,
@@ -256,6 +278,16 @@ class LiteLLMClient(BaseLLMClient):
             llm_usage_type: str = LLM_USAGE_MASTER,
             **kwargs
     ) -> AsyncIterator[LLMStreamChunk]:
+        """发起流式对话，逐块产出增量内容。
+
+        处理 reasoning_content 与工具调用增量，在结束时附带 token 用量与费用；
+        发生异常时产出一个带 error 的结束块，并统一关闭底层流。
+
+        :param messages: 对话消息列表
+        :param llm_usage_type: LLM 使用类型，用于选择对应配置
+        :param kwargs: 其余请求参数
+        :yield: 逐个 LLMStreamChunk 增量块
+        """
         response = None
         try:
             params = self._build_completion_kwargs(

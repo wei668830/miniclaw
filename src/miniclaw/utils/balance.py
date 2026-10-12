@@ -24,6 +24,11 @@ from loguru import logger
 
 
 def _to_float(value) -> Optional[float]:
+    """将余额字段安全转换为 float，转换失败时返回 None。
+
+    :param value: 待转换的原始值
+    :return: 转换后的浮点数，无法解析时为 None
+    """
     try:
         return float(value)
     except (TypeError, ValueError):

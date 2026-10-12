@@ -18,6 +18,11 @@ class HistoryStore:
     """append-only JSONL 会话历史存储。"""
 
     def __init__(self, session_id: str, base_dir: str | None = None):
+        """初始化会话历史存储。
+
+        :param session_id: 会话标识，用于确定 JSONL 文件名
+        :param base_dir: 存储根目录；为 None 时取 MINICLAW_MEMORY_RAW_DIR
+        """
         self.session_id = session_id
         if base_dir is None:
             base_dir = EnvVarLoader.get_str(

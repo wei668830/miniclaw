@@ -1,3 +1,9 @@
+"""Clerk：子任务执行器（子代理）。
+
+接收决策者下发的任务，以流式对话驱动大模型（含工具调用）端到端执行，并在结束时
+汇总输出「执行结果 / 执行情况」。同时内置层级与工具轮次安全网，防止递归或死循环。
+"""
+
 import json
 
 from loguru import logger
@@ -26,6 +32,8 @@ CLERK_SHORT_SYSTEM_PROMPT = (
 
 
 class Clerk:
+    """子任务执行器：以流式对话执行决策者下发的任务并汇总执行结果。"""
+
     def __init__(
             self,
             message: str,
@@ -101,6 +109,10 @@ class Clerk:
             Panel(Markdown(f"【子任务执行器接受任务】\n\n{message}"), title=f"AI-CLERK-RECEIVED (layer: {self.layer})"))
 
     async def run(self) -> str:
+        """执行子任务：流式对话完成后，汇总输出执行结果与执行情况。
+
+        :return: 面向决策者的执行结果摘要文本
+        """
         if self._layer_exceeded:
             _msg = (
                 f"子代理层级超过上限（layer={self.layer}），未执行任务。"

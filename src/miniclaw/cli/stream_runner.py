@@ -161,6 +161,12 @@ async def _execute_tool_call(
 
 
 def _append_assistant_tool_calls(append: Callable[[dict], None], reasoning: str, tool_calls: list) -> None:
+    """把助手的 tool_calls 消息写回历史；有思维链时一并保留 ``reasoning_content``。
+
+    :param append: 消息落盘回调
+    :param reasoning: 本轮的思维链内容（可为空）
+    :param tool_calls: 助手发起的工具调用列表
+    """
     if reasoning:
         append(
             {
@@ -175,6 +181,12 @@ def _append_assistant_tool_calls(append: Callable[[dict], None], reasoning: str,
 
 
 def _append_assistant_text(append: Callable[[dict], None], content: str, reasoning: str) -> None:
+    """把助手的纯文本回复写回历史；有思维链时一并保留 ``reasoning_content``。
+
+    :param append: 消息落盘回调
+    :param content: 助手正文内容
+    :param reasoning: 本轮的思维链内容（可为空）
+    """
     if reasoning:
         append({"role": "assistant", "content": content, "reasoning_content": reasoning})
     else:
@@ -244,6 +256,7 @@ def _sanitize_messages(messages: List[dict], keep_reasoning: bool = True) -> Lis
 
 
 def _strip_reasoning(msg: dict) -> dict:
+    """返回去除 ``reasoning_content`` 字段后的消息副本（浅拷贝，不改动原对象）。"""
     if "reasoning_content" in msg:
         msg = {k: v for k, v in msg.items() if k != "reasoning_content"}
     return msg

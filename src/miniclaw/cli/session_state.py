@@ -22,6 +22,7 @@ CURRENT_SESSION_FILE = STATE_DIR / "current_session.json"
 
 
 def _now() -> str:
+    """返回当前时间的 ISO 字符串（精确到秒）。"""
     return datetime.now().isoformat(timespec="seconds")
 
 
@@ -35,6 +36,7 @@ def _coerce(value):
 
 
 def _read_raw() -> dict | None:
+    """读取当前会话元数据原始字典；文件不存在或损坏时返回 None。"""
     if not CURRENT_SESSION_FILE.exists():
         return None
     try:
@@ -47,6 +49,7 @@ def _read_raw() -> dict | None:
 
 
 def _write_raw(data: dict) -> None:
+    """将元数据字典写入当前会话文件（自动创建目录，异常仅记 warning）。"""
     try:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         with open(CURRENT_SESSION_FILE, "w", encoding="utf-8") as f:

@@ -1,4 +1,5 @@
-
+"""文件读取通用工具：带 Unicode 错误处理与内存保护的 read_file_safe。
+"""
 from loguru import logger
 
 # Maximum file size to read into memory (1GB)

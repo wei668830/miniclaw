@@ -1,3 +1,14 @@
+"""MiniClaw 命令行入口（``python -m miniclaw``）。
+
+提供基于 argparse 的子命令：
+
+* ``server`` —— 以 uvicorn 启动 Web 后端（FastAPI）；
+* ``cli``    —— 启动命令行交互模式；
+* ``ui``     —— 启动桌面应用（后端 + Electron 前端）。
+
+未指定子命令时默认进入 CLI 交互模式。
+"""
+
 import argparse
 import asyncio
 import os
@@ -42,6 +53,10 @@ def run_server(args):
 
 
 def run_cli(args):
+    """启动 CLI 交互模式，运行 ``miniclaw.cli.main.cli_run`` 协程。
+
+    :param args: argparse 解析出的命令行参数
+    """
     from miniclaw.cli.main import cli_run
 
     # 可以传递参数给 cli
@@ -56,11 +71,21 @@ def run_cli(args):
 # 桌面应用（Electron）启动
 # ---------------------------------------------------------------------------
 def _project_root() -> Path:
+    """返回项目根目录（由 ``src/miniclaw/__main__.py`` 上溯两级）。
+
+    :return: 项目根目录 ``Path``
+    """
     # src/miniclaw/__main__.py -> 项目根
     return Path(__file__).resolve().parents[2]
 
 
 def _port_available(host: str, port: int) -> bool:
+    """探测 ``host:port`` 是否可用（可绑定）。
+
+    :param host: 主机地址
+    :param port: 端口号
+    :return: 可绑定返回 True，被占用返回 False
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -72,6 +97,11 @@ def _port_available(host: str, port: int) -> bool:
 
 
 def _pick_free_port(host: str) -> int:
+    """让操作系统分配一个空闲端口并返回其端口号。
+
+    :param host: 绑定主机地址
+    :return: 可用的空闲端口号
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((host, 0))
         return s.getsockname()[1]
@@ -83,6 +113,12 @@ def _resolve_port(host: str, preferred: int) -> int:
 
 
 def _wait_healthy(url: str, timeout: float = 30.0) -> bool:
+    """轮询健康检查 URL，直到返回 200 或超时。
+
+    :param url: 健康检查地址
+    :param timeout: 最长等待秒数
+    :return: 超时前探测到 200 返回 True，否则返回 False
+    """
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -96,12 +132,21 @@ def _wait_healthy(url: str, timeout: float = 30.0) -> bool:
 
 
 def _lock_path() -> Path:
+    """返回单实例锁文件路径（默认位于 ``MINICLAW_STATE_DIR`` 下），并确保其目录存在。
+
+    :return: 锁文件 ``Path``
+    """
     state_dir = Path(EnvVarLoader.get_str("MINICLAW_STATE_DIR", "~/.miniclaw/state")).expanduser()
     state_dir.mkdir(parents=True, exist_ok=True)
     return state_dir / "miniclaw-ui.lock"
 
 
 def _pid_alive(pid: int) -> bool:
+    """判断给定 PID 的进程是否存活。
+
+    :param pid: 进程号
+    :return: 进程存活返回 True，否则返回 False
+    """
     if pid <= 0:
         return False
     try:
@@ -142,6 +187,7 @@ def _acquire_single_instance_lock() -> bool:
 
 
 def _release_lock() -> None:
+    """释放（删除）单实例锁文件，删除失败时忽略。"""
     try:
         _lock_path().unlink()
     except Exception:

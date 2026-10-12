@@ -15,6 +15,11 @@ from ...constant import WORKING_DIR
 
 
 def _tool_error(msg: str) -> ToolResponse:
+    """构造失败的 ToolResponse（JSON 文本，ok=False）。
+
+    :param msg: 错误信息
+    :return: 封装错误 JSON 的 ToolResponse
+    """
     return ToolResponse(
         content=[
             TextBlock(
@@ -30,6 +35,12 @@ def _tool_error(msg: str) -> ToolResponse:
 
 
 def _tool_ok(path: str, message: str) -> ToolResponse:
+    """构造成功的 ToolResponse（JSON 文本，含 ok/path/message）。
+
+    :param path: 截图保存路径
+    :param message: 提示信息
+    :return: 封装结果 JSON 的 ToolResponse
+    """
     return ToolResponse(
         content=[
             TextBlock(

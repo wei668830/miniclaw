@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/chat", tags=["chat"], dependencies=[Depends(requ
 
 
 def _apply_overrides(session, req: ChatStreamRequest) -> None:
+    """把请求中非空的模型/采样/模式覆盖项应用到会话。"""
     if req.model:
         session.model = req.model
     if req.temperature is not None:
@@ -32,6 +33,11 @@ def _apply_overrides(session, req: ChatStreamRequest) -> None:
 
 @router.post("/stream")
 async def chat_stream(req: ChatStreamRequest):
+    """SSE 流式聊天：校验消息后流式返回会话事件（meta/chunk/done 等）。
+
+    :param req: 聊天请求体（含 session_id、message 及可选覆盖参数）
+    :return: text/event-stream 流式响应
+    """
     if not req.message or not req.message.strip():
         raise HTTPException(status_code=400, detail="message 不能为空")
 
@@ -40,6 +46,7 @@ async def chat_stream(req: ChatStreamRequest):
     _apply_overrides(session, req)
 
     async def event_generator() -> AsyncIterator[str]:
+        """把会话流事件逐条编码为 SSE 文本帧产出。"""
         async for event in session.stream_events(req.message):
             name = event["event"]
             data = event["data"]
@@ -58,6 +65,11 @@ async def chat_stream(req: ChatStreamRequest):
 
 @router.post("", response_model=ChatResponse)
 async def chat(req: ChatStreamRequest):
+    """非流式聊天：聚合一轮对话结果并返回 ChatResponse。
+
+    :param req: 聊天请求体（含 session_id、message 及可选覆盖参数）
+    :return: 聚合后的聊天响应体
+    """
     if not req.message or not req.message.strip():
         raise HTTPException(status_code=400, detail="message 不能为空")
 

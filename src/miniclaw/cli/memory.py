@@ -1,3 +1,10 @@
+"""Memory：对话记忆的精简器。
+
+在上下文接近上限时，把冗长的对话（含工具调用）精简为结构化记忆（固定 8 章节），
+支持预算内一次性精简与超预算时分块 map-reduce 递进精简，并写入带 YAML frontmatter
+的记忆文件。
+"""
+
 import json
 import re
 from datetime import datetime
@@ -55,6 +62,12 @@ class Memory(Actor):
     """精简大模型对话内容并保留关键信息的类"""
 
     def __init__(self, path: str, usage_type: Optional[str] = None, **kwargs):
+        """初始化记忆精简器。
+
+        :param path: 记忆文件的写入路径
+        :param usage_type: 大模型使用场景；为 None 时默认取 LLM_USAGE_MASTER
+        :param kwargs: 透传给 Actor 的连接配置（如 model / base_url / api_key 等）
+        """
         super().__init__(**kwargs)
 
         self.path = path

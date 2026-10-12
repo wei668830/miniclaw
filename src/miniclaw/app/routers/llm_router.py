@@ -1,3 +1,9 @@
+"""原生 LLM 接口路由（保留/兼容）：直接代理单轮与流式大模型调用。
+
+与 ``chat_router`` 的会话化聊天不同，本路由按 CID 读写聊天上下文，
+适用于不依赖会话运行时的轻量直连场景。
+"""
+
 import json
 from typing import Any, AsyncIterator
 
@@ -14,6 +20,8 @@ router = APIRouter(prefix="/api/llm", tags=["llm"])
 
 
 class ChatRequest(BaseModel):
+    """原生聊天请求体（聊天 ID、消息列表与可选模型/采样/provider）。"""
+
     cid: str = Field(..., description="Chat ID")
     messages: list[dict[str, Any]]
     model: str | None = Field(default=None, description="litellm model id, e.g. openai/gpt-4o-mini")
@@ -24,6 +32,13 @@ class ChatRequest(BaseModel):
 
 @router.post("/chat")
 async def chat(req: ChatRequest):
+    """POST /api/llm/chat：拼接 CID 历史后单轮调用模型并回写上下文。
+
+    仅接受单条非空用户消息；返回内容、思考及用量。
+
+    :param req: 原生聊天请求体
+    :return: 含内容/用量字段的字典
+    """
     if not req.messages or len(req.messages) != 1 or req.messages[0].get('role') != 'user' or not req.messages[0].get('content', '').strip():
         raise HTTPException(status_code=400, detail="必须传递一条非空的用户消息")
 
@@ -77,6 +92,11 @@ async def chat(req: ChatRequest):
 
 @router.post("/stream")
 async def stream_chat(req: ChatRequest):
+    """POST /api/llm/stream：以 SSE 流式调用模型，支持工具调用回路。
+
+    :param req: 原生聊天请求体
+    :return: text/event-stream 流式响应
+    """
     client = get_llm_client(req.provider)
 
     tools = llm_tools_manager.get_llm_tools()
@@ -85,6 +105,7 @@ async def stream_chat(req: ChatRequest):
     messages = req.messages
 
     async def event_generator() -> AsyncIterator[str]:
+        """按 SSE 编码逐块产出模型结果，处理工具调用并以循环续接对话。"""
         while True:
             try:
                 logger.warning("@@@@@@@@@@ 开始新的对话流 @@@@@@@@@@")
