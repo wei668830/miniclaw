@@ -99,6 +99,58 @@ class StreamResult:
     cost_usd: Optional[float] = None
 
 
+def _split_concatenated_json(arguments: Optional[str]) -> Optional[List[str]]:
+    """把「多个 JSON 对象拼接」的 arguments 拆成多个 JSON 字符串。
+
+    某些模型会把多个参数对象拼在同一个工具调用的 ``arguments`` 里
+    （如 ``{"a":1}{"a":2}``）。若为合法单对象、或无法安全拆分，则返回 ``None``。
+
+    :param arguments: 工具调用的原始参数串
+    :return: 拆分后的 JSON 字符串列表（>1 个），否则 None
+    """
+    if not arguments:
+        return None
+    s = arguments.strip()
+    if not s:
+        return None
+    try:
+        json.loads(s)
+        return None
+    except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+    parts: List[str] = []
+    idx, n = 0, len(s)
+    while idx < n:
+        while idx < n and s[idx] in " \t\r\n,;":
+            idx += 1
+        if idx >= n:
+            break
+        try:
+            obj, end = decoder.raw_decode(s, idx)
+        except json.JSONDecodeError:
+            return None
+        parts.append(json.dumps(obj, ensure_ascii=False))
+        idx = end
+    return parts if len(parts) > 1 else None
+
+
+def _merge_tool_responses(responses: List[ToolResponse]) -> ToolResponse:
+    """把多次工具执行结果合并为一个 ToolResponse（保持与单个 tool_call 的配对）。
+
+    :param responses: 各次执行的 ToolResponse 列表
+    :return: 合并后的 ToolResponse
+    """
+    blocks: List = []
+    multi = len(responses) > 1
+    for i, resp in enumerate(responses, 1):
+        if multi:
+            blocks.append(TextBlock(type="text", text=f"【参数对象 {i} 的结果】"))
+        blocks.extend(getattr(resp, "content", []) or [])
+    return ToolResponse(content=blocks)
+
+
 async def _execute_tool_call(
     function_obj: dict,
     *,
@@ -112,6 +164,26 @@ async def _execute_tool_call(
     """分发并执行一次工具调用，异常统一包装成 ToolResponse 文本。"""
     name = function_obj["name"]
     arguments = function_obj["arguments"]
+
+    # 容错：部分模型会把多个 JSON 对象拼接在同一个工具调用的 arguments 中
+    # （如 web_search / read_file 出现 {...}{...}）；拆分为多次执行并合并结果。
+    parts = _split_concatenated_json(arguments)
+    if parts:
+        logger.warning(f"工具 {name} 的 arguments 为多个 JSON 拼接（{len(parts)} 个），已拆分依次执行")
+        responses: List[ToolResponse] = []
+        for part in parts:
+            responses.append(
+                await _execute_tool_call(
+                    {"name": name, "arguments": part},
+                    llm_tools_manager=llm_tools_manager,
+                    model=model,
+                    base_url=base_url,
+                    api_key=api_key,
+                    custom_llm_provider=custom_llm_provider,
+                    next_layer=next_layer,
+                )
+            )
+        return _merge_tool_responses(responses)
 
     if name == LLM_FUNCTION_SUBAGENT:
         try:
@@ -434,46 +506,53 @@ async def run_stream_round(
                 continue
 
             if chunk.finish_reason == "tool_calls":
-                tool_call_obj = chunk.tool_calls[0]
-                function_obj = tool_call_obj["function"]
-                fn_name = str(function_obj["name"])
-                fn_args = str(function_obj["arguments"])
+                tool_calls = chunk.tool_calls or []
 
-                tool_response = await _execute_tool_call(
-                    function_obj,
-                    llm_tools_manager=llm_tools_manager,
-                    model=model,
-                    base_url=base_url,
-                    api_key=api_key,
-                    custom_llm_provider=custom_llm_provider,
-                    next_layer=next_layer,
-                )
+                # 先执行全部工具调用（_execute_tool_call 内部已捕获异常，不会向外抛出）
+                executed: List = []
+                for tool_call_obj in tool_calls:
+                    function_obj = tool_call_obj["function"]
+                    tool_response = await _execute_tool_call(
+                        function_obj,
+                        llm_tools_manager=llm_tools_manager,
+                        model=model,
+                        base_url=base_url,
+                        api_key=api_key,
+                        custom_llm_provider=custom_llm_provider,
+                        next_layer=next_layer,
+                    )
+                    executed.append((tool_call_obj, function_obj, tool_response))
 
-                if on_tool_call is not None:
-                    on_tool_call(fn_name)
-
-                # 原子落盘：助手 tool_calls 与 tool 响应必须成对写入，
-                # 二者之间不执行任何可抛异常的打印/渲染，避免悬空 tool_calls。
-                _append_assistant_tool_calls(append, collected_reasoning, chunk.tool_calls)
-                append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call_obj["id"],
-                        "name": fn_name,
-                        "content": shrink_tool_response(
-                            tool_response.model_dump_json(), name=fn_name
-                        ),
-                    }
-                )
+                # 原子落盘：助手 tool_calls 消息（含全部调用）+ 逐个 tool 响应，
+                # 其间不执行任何可抛异常的打印/渲染，避免出现悬空 tool_calls。
+                _append_assistant_tool_calls(append, collected_reasoning, tool_calls)
+                for tool_call_obj, function_obj, tool_response in executed:
+                    fn_name = str(function_obj["name"])
+                    append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call_obj["id"],
+                            "name": fn_name,
+                            "content": shrink_tool_response(
+                                tool_response.model_dump_json(), name=fn_name
+                            ),
+                        }
+                    )
 
                 # 落盘后再做信息展示（动态内容全部转义）
                 _flush_reasoning()
-                console.print(
-                    f"\n[bold yellow]{escape(log_prefix)}🛠️ 工具调用: "
-                    f"{escape(fn_name)}({escape(clip(fn_args, max_len=250))})[/bold yellow]"
-                )
-                logger.debug(f"{log_prefix}调用工具 {fn_name} 参数: {fn_args}")
-                logger.debug(f"{log_prefix}工具 {fn_name} 响应: {tool_response}")
+                for _tool_call_obj, function_obj, tool_response in executed:
+                    fn_name = str(function_obj["name"])
+                    fn_args = str(function_obj["arguments"])
+                    if on_tool_call is not None:
+                        on_tool_call(fn_name)
+                    console.print(
+                        f"\n[bold yellow]{escape(log_prefix)}🛠️ 工具调用: "
+                        f"{escape(fn_name)}({escape(clip(fn_args, max_len=250))})[/bold yellow]"
+                    )
+                    logger.debug(f"{log_prefix}调用工具 {fn_name} 参数: {fn_args}")
+                    logger.debug(f"{log_prefix}工具 {fn_name} 响应: {tool_response}")
+
                 logger.debug(f"{log_prefix}工具调用结果已添加到消息历史，继续对话")
                 return StreamResult(
                     tool_called=True,

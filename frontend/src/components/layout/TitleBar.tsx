@@ -5,7 +5,7 @@ import logo from '../../assets/logo.png';
 // - 整条为可拖拽区域（.titlebar 设置 -webkit-app-region: drag）
 // - 右侧窗口控制按钮（最小化 / 最大化-还原 / 关闭）走 IPC 调用主进程
 // - 非 Electron 环境（如浏览器预览）不渲染，避免误触
-export const TitleBar: React.FC = () => {
+export const TitleBar: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSettings }) => {
   const api = typeof window !== 'undefined' ? window.miniclaw : undefined;
   const [maximized, setMaximized] = useState(false);
 
@@ -25,6 +25,16 @@ export const TitleBar: React.FC = () => {
         <span>MiniClaw</span>
       </div>
       <div className="titlebar-controls" onDoubleClick={(e) => e.stopPropagation()}>
+        {onOpenSettings && (
+          <button className="titlebar-btn" title="设置" onClick={onOpenSettings}>
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+              <line x1="1" y1="3" x2="11" y2="3" stroke="currentColor" strokeWidth="1.2" />
+              <line x1="1" y1="9" x2="11" y2="9" stroke="currentColor" strokeWidth="1.2" />
+              <circle cx="4" cy="3" r="1.7" fill="currentColor" />
+              <circle cx="8" cy="9" r="1.7" fill="currentColor" />
+            </svg>
+          </button>
+        )}
         <button className="titlebar-btn" title="最小化" onClick={() => void api.minimizeWindow?.()}>
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
             <rect x="0" y="4.5" width="10" height="1" fill="currentColor" />

@@ -166,6 +166,35 @@ def _format_llm_error(e: Exception) -> str:
     return message
 
 
+def _merge_tool_call_delta(acc: dict, entry) -> None:
+    """把一个工具调用增量合并进「按 index 归组」的累加器。
+
+    流式返回中一个 chunk 的 ``tool_calls`` 可能包含**多个**条目（对应模型发起的
+    多个并行工具调用），每个条目带 ``index``。必须**按 index 分别累加** id/name/arguments，
+    否则多个调用的 arguments 会被拼接到一起（如 ``{"query":..}{"query":..}``）。
+
+    :param acc: ``index -> {id, type, function:{name, arguments}}`` 的累加器（原地修改）
+    :param entry: 单个工具调用增量条目
+    """
+    idx = getattr(entry, "index", None)
+    if idx is None:
+        idx = 0
+    slot = acc.setdefault(
+        idx, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
+    )
+    entry_id = getattr(entry, "id", None)
+    if entry_id:
+        slot["id"] = entry_id
+    fn = getattr(entry, "function", None)
+    if fn is not None:
+        name = getattr(fn, "name", None)
+        if name:
+            slot["function"]["name"] = name
+        args = getattr(fn, "arguments", None)
+        if args:
+            slot["function"]["arguments"] += args
+
+
 class LiteLLMClient(BaseLLMClient):
     """基于 litellm 库的大模型客户端，实现非流式与流式对话。"""
 
@@ -297,9 +326,7 @@ class LiteLLMClient(BaseLLMClient):
                     **kwargs
                 )
 
-            tool_call_id = ""
-            tool_name = ""
-            tool_arguments = ""
+            tool_calls_acc: dict = {}
             completion_acc = ""
 
             response = await acompletion(**params)
@@ -323,15 +350,9 @@ class LiteLLMClient(BaseLLMClient):
                     if hasattr(delta_obj, "tool_calls") and delta_obj.tool_calls is not None and len(delta_obj.tool_calls) > 0:
                         is_tool_call = True
                         delta_type = "tool_calls"
-                        ccdtc = delta_obj.tool_calls[0]
-                        if hasattr(ccdtc, "id") and ccdtc.id is not None and ccdtc.id.strip() != "":
-                            tool_call_id = ccdtc.id
-                        if hasattr(ccdtc, "function") and ccdtc.function is not None:
-                            function_obj = ccdtc.function
-                            if hasattr(function_obj, "name") and function_obj.name is not None and function_obj.name.strip() != "":
-                                tool_name = function_obj.name
-                            if hasattr(function_obj, "arguments") and function_obj.arguments is not None:
-                                tool_arguments += function_obj.arguments
+                        # 按 index 分别累加（一个 chunk 可能含多个并行工具调用）
+                        for entry in delta_obj.tool_calls:
+                            _merge_tool_call_delta(tool_calls_acc, entry)
 
                 # 是否结束
                 finish_reason = None
@@ -357,14 +378,10 @@ class LiteLLMClient(BaseLLMClient):
                     yield LLMStreamChunk(
                         delta=delta,
                         delta_type=delta_type,
-                        tool_calls= [{
-                            "id": tool_call_id,
-                            "type": "function",
-                            "function": {
-                                "name": tool_name,
-                                "arguments": tool_arguments,
-                            }
-                        }] if finish_reason == "tool_calls" else None,
+                        tool_calls=(
+                            [tool_calls_acc[i] for i in sorted(tool_calls_acc)]
+                            if finish_reason == "tool_calls" else None
+                        ),
                         finish=True,
                         finish_reason= finish_reason,
                         prompt_tokens=prompt_tokens,

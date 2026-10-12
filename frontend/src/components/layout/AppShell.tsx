@@ -4,6 +4,7 @@ import { ChatPanel } from '../chat/ChatPanel';
 import { SkillPanel } from '../skill/SkillPanel';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { StatusBar } from '../common/StatusBar';
+import { WorkingDirButton } from '../common/WorkingDirButton';
 import { TitleBar } from './TitleBar';
 
 export const AppShell: React.FC = () => {
@@ -12,18 +13,16 @@ export const AppShell: React.FC = () => {
 
   return (
     <div className="app-shell">
-      <TitleBar />
+      <TitleBar onOpenSettings={() => setSettingsOpen(true)} />
       <div className="app-body">
         <SessionSidebar />
         <main className="main-area">
           <div className="topbar">
             <div className="topbar-title">对话</div>
             <div className="topbar-actions">
+              <WorkingDirButton />
               <button className="btn small" onClick={() => setRightOpen((v) => !v)}>
                 {rightOpen ? '隐藏技能' : '显示技能'}
-              </button>
-              <button className="btn small" onClick={() => setSettingsOpen(true)}>
-                设置
               </button>
             </div>
           </div>

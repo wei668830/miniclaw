@@ -22,6 +22,9 @@ from .runtime import ChatSession
 # 列表对账（reconcile）的最小间隔（秒）：避免每次列表都全目录 stat
 _RECONCILE_TTL_SECONDS = 2.0
 
+# 历史会话列表默认每页条数（默认展示与每次翻页均为该值）
+DEFAULT_SESSION_PAGE_SIZE = 50
+
 
 class SessionManager:
     """会话运行时容器：维护 session_id 到 ChatSession 的映射与当前会话。"""
@@ -131,7 +134,7 @@ class SessionManager:
     # ------------------------------------------------------------------
     # 列表
     # ------------------------------------------------------------------
-    def list_sessions(self, limit: int = 10, offset: int = 0) -> List[dict]:
+    def list_sessions(self, limit: int = DEFAULT_SESSION_PAGE_SIZE, offset: int = 0) -> List[dict]:
         """列出会话（索引 + 内存会话合并），按更新时间倒序，支持分页。
 
         读取「轻量索引」（``session_index``），**不整读任何 JSONL**；仅在索引过期时

@@ -166,3 +166,30 @@ body {
 .btn.choice { background: #e7effd; border-color: var(--accent); color: var(--accent); padding: 6px 12px; font-size: 13px; }
 .btn.choice:hover { background: #d8e6fc; }
 .btn.choice.answered { background: #eef7ef; border-color: var(--ok); color: var(--ok); opacity: 1; }
+
+/* ---------- Markdown 代码块：复制按钮 ---------- */
+.code-block { position: relative; margin: 8px 0; }
+.code-block-head { display: flex; align-items: center; justify-content: space-between; background: #161b22; color: #9aa4b2; border-radius: 8px 8px 0 0; padding: 4px 10px; font-size: 12px; }
+.code-lang { text-transform: lowercase; }
+.code-copy { border: 1px solid rgba(255, 255, 255, 0.2); background: transparent; color: #c9d1d9; border-radius: 6px; padding: 1px 8px; font-size: 12px; cursor: pointer; }
+.code-copy:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.code-block .code-block-pre { margin: 0; border-radius: 0 0 8px 8px; }
+
+/* ---------- 正文路径 chip（可点击打开） ---------- */
+.path-chip { display: inline-flex; align-items: center; gap: 2px; vertical-align: baseline; background: #eef4ff; border: 1px solid #cfe0ff; border-radius: 6px; padding: 0 2px 0 6px; font-size: 0.92em; }
+.path-chip-main { border: none; background: transparent; color: var(--accent); cursor: pointer; font: inherit; padding: 1px 2px; }
+.path-chip-main:hover { text-decoration: underline; }
+.path-chip-folder { border: none; background: transparent; cursor: pointer; padding: 1px 4px; opacity: 0.8; font: inherit; }
+.path-chip-folder:hover { opacity: 1; }
+.path-chip button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---------- web_search 结果：引用链接卡片 ---------- */
+.search-badge { margin-left: auto; color: var(--fg-muted); font-size: 11px; }
+.search-results { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.search-total { color: var(--fg-muted); font-size: 11.5px; }
+.search-card { display: block; text-decoration: none; color: inherit; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 8px; padding: 8px 10px; background: #fff; transition: background 0.12s, box-shadow 0.12s; }
+a.search-card:hover { background: #f7f9fc; box-shadow: 0 1px 5px rgba(0, 0, 0, 0.07); }
+.search-card-title { font-weight: 600; font-size: 13px; color: var(--fg); margin-bottom: 3px; }
+.search-card-meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--fg-muted); font-size: 11.5px; margin-bottom: 4px; }
+.search-summary { font-size: 12.5px; color: #3a4048; line-height: 1.5; margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.search-url { font-size: 11.5px; color: var(--accent); word-break: break-all; margin-bottom: 4px; }

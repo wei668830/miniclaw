@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import { apiGet, apiPost, apiPatch, apiDelete, streamChat } from '../api/client';
 import type { BalanceInfo, ChatStreamEvent, ConfigPayload, ContextInfo, SessionInfo, SkillItem, UsageInfo } from '../api/types';
 
+// 历史会话列表每页条数：默认展示与「加载更多」每次均取该值
+const SESSION_PAGE_SIZE = 50;
+
 export interface UIToolCall {
   id?: string;
   name?: string;
@@ -65,7 +68,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   ready: false,
   statusText: '就绪',
   sessions: [],
-  sessionsLimit: 50,
+  sessionsLimit: SESSION_PAGE_SIZE,
   currentSessionId: null,
   messages: [],
   streaming: false,
@@ -108,7 +111,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadMoreSessions: async () => {
-    const next = get().sessionsLimit + 50;
+    const next = get().sessionsLimit + SESSION_PAGE_SIZE;
     set({ sessionsLimit: next });
     await get().refreshSessions(next);
   },

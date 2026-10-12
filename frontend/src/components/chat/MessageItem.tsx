@@ -6,6 +6,7 @@ import type { UIMessage } from '../../store/appStore';
 import { ToolCallCard } from './ToolCallCard';
 import { ChoiceOptions } from './ChoiceOptions';
 import { parseChoice } from './choice';
+import { markdownComponents } from './markdownComponents';
 
 const TASK_DONE_TOKEN = '【TASK_DONE】';
 
@@ -45,7 +46,9 @@ export const MessageItem: React.FC<{ message: UIMessage; answeredValue?: string 
         {message.toolCalls?.map((tc, i) => <ToolCallCard key={i} call={tc} />)}
         {content && (
           <div className="content markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {content}
+            </ReactMarkdown>
           </div>
         )}
         {options.length > 0 && (

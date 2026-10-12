@@ -143,25 +143,24 @@ async def stream_chat(req: ChatRequest):
                                 }
                             )
 
-                            tool_call_obj = chunk.tool_calls[0]
-                            function_obj = tool_call_obj["function"]
+                            for tool_call_obj in chunk.tool_calls or []:
+                                function_obj = tool_call_obj["function"]
 
-                            yield f"event: tool_call\ndata: {json.dumps(tool_call_obj, ensure_ascii=False)}\n\n"
+                                yield f"event: tool_call\ndata: {json.dumps(tool_call_obj, ensure_ascii=False)}\n\n"
 
-                            logger.warning(f"实际工具调用。。。。")
-                            tool_response = await llm_tools_manager.execute_tool(
-                                function_obj["name"],
-                                function_obj["arguments"]
-                            )
-                            logger.warning(f"工具调用结果：{tool_response}")
-                            messages.append(
-                                {
-                                    "role": "tool",
-                                    "tool_call_id": tool_call_obj["id"],
-                                    "name": function_obj["name"],
-                                    "content": tool_response.model_dump_json()
-                                }
-                            )
+                                tool_response = await llm_tools_manager.execute_tool(
+                                    function_obj["name"],
+                                    function_obj["arguments"]
+                                )
+                                logger.warning(f"工具调用结果：{tool_response}")
+                                messages.append(
+                                    {
+                                        "role": "tool",
+                                        "tool_call_id": tool_call_obj["id"],
+                                        "name": function_obj["name"],
+                                        "content": tool_response.model_dump_json()
+                                    }
+                                )
                             logger.warning("工具调用结果已添加到对话消息中，继续对话流。。。")
                             break
 

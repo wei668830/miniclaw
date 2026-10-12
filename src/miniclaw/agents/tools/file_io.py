@@ -293,7 +293,7 @@ async def edit_file(
             content=[
                 TextBlock(
                     type="text",
-                    text=f"Error: The text to replace was not found in {file_path}.",
+                    text=f"Error: The text to replace was not found in {resolved_path}.",
                 ),
             ],
         )
@@ -313,7 +313,7 @@ async def edit_file(
         content=[
             TextBlock(
                 type="text",
-                text=f"Successfully replaced text in {file_path}.",
+                text=f"Successfully replaced text in {resolved_path}.",
             ),
         ],
     )

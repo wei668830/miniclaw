@@ -7,12 +7,13 @@ from fastapi.responses import PlainTextResponse
 
 from ..deps import get_session_manager, require_token
 from ..models import NewSessionRequest
+from ..session_manager import DEFAULT_SESSION_PAGE_SIZE
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"], dependencies=[Depends(require_token)])
 
 
 @router.get("")
-async def list_sessions(limit: int = 10, offset: int = 0):
+async def list_sessions(limit: int = DEFAULT_SESSION_PAGE_SIZE, offset: int = 0):
     """GET /api/sessions：列出会话及当前会话 ID（支持 limit/offset 分页）。
 
     :param limit: 返回的最大条数
