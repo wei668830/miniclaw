@@ -10,7 +10,7 @@
 * 支持自主推进模式（`agent`），允许大模型自行判断何时需要继续推进任务，直到任务完成；`chat` 模式为一问一答。
 * 支持软件工程开发的各个环节，包括但不限于需求分析、设计、编码、测试(使用 playwright 进行B/S集成测试)、部署等。
 * 支持多个大模型配置，可以即时切换生效。
-* 支持联网搜索（豆包搜索）、图片查看、屏幕截图、后台独立进程运行等工具。
+* 支持联网搜索（豆包搜索）、屏幕截图、后台独立进程运行等工具。
 
 ## 工具列表
 * 文件读写：`read_file`、`write_file`、`edit_file`、`append_file`、`tail_file`
@@ -18,7 +18,6 @@
 * `SHELL` 命令：`execute_shell_command`
 * 浏览器操作：`control_browser`（基于 `playwright`，对设置防火防盗防 AI 的网站操作不了！）
 * 屏幕截图：`capture_screenshot`
-* 图片查看：`view_image`
 * 时间：`get_current_time` / `set_user_timezone`
 * 联网搜索：`web_search`（豆包搜索，默认关闭，可用 `/web-search on|off` 切换）
 * 独立进程运行：`launch_detached`（在后台启动一个完全独立的进程，脱离当前 Python 程序独立运行。适用于启动 Spring Boot、Node.js、执行 yarn/npm 构建等场景。路径支持 ~ 表示用户目录。）

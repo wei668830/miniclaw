@@ -112,8 +112,14 @@ export interface StreamHandlers {
   onEvent: (evt: ChatStreamEvent) => void;
 }
 
+export interface StreamImage {
+  data_base64: string;
+  mime?: string;
+  name?: string;
+}
+
 export async function streamChat(
-  body: { session_id: string; message: string; model?: string | null; mode?: string | null },
+  body: { session_id: string; message: string; images?: StreamImage[]; model?: string | null; mode?: string | null },
   handlers: StreamHandlers,
   signal?: AbortSignal
 ): Promise<void> {

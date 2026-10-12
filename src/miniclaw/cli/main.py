@@ -43,6 +43,7 @@ from ..constant import (
     EnvVarLoader,
 )
 from ..utils.common import clip, dt_uuid, extract_yaml_frontmatter, masking_str, merge_system_prompt_into_user, scan_skills
+from ..utils.multimodal import build_user_content
 from ..utils.context import (
     check_budget,
     clear_budget_overrides,
@@ -155,6 +156,8 @@ class CommandLineInteraction:
         # 会话状态与外部记忆（JSONL）初始化
         self.session_id = f"s{dt_uuid()}"
         self.history_store = HistoryStore(self.session_id)
+        self._pending_images: list = []  # 由 /image 附加、随下一条用户消息发送的图片
+        self._turn_image_cache: dict = {}  # 单轮图片编码缓存（轮结束清理）
         self.active_plan_path = load_active_plan()
         self.context_condense_count = 0
         self.pending_condense = None
@@ -244,6 +247,18 @@ class CommandLineInteraction:
             if msg.get("role") == "user" and isinstance(msg.get("content"), str):
                 msg["content"] = merge_system_prompt_into_user(system_prompt, msg["content"])
                 break
+        # 图片：仅「当前轮」（最后一条 user 消息）携带；更早的图片剔除（省 token）
+        last_user_idx = max(
+            (i for i, m in enumerate(messages) if m.get("role") == "user"), default=-1
+        )
+        for i, msg in enumerate(messages):
+            imgs = msg.pop("images", None)
+            if not imgs:
+                continue
+            if i == last_user_idx:
+                msg["content"] = build_user_content(msg.get("content") or "", imgs, cache=self._turn_image_cache)
+            elif not str(msg.get("content") or "").strip():
+                msg["content"] = "[图片]（历史图片，已省略）"
         return messages
 
     def _append_message(self, message: dict):
@@ -980,6 +995,51 @@ class CommandLineInteraction:
             logger.exception("加载技能失败")
             console.print(f"[red]❌ 加载技能失败: {escape(str(e))}[/red]")
 
+    def _cmd_image(self, arg: str | None):
+        """处理 /image 命令：附加图片文件（随下一条用户消息发送）。
+
+        - `/image <路径> [路径2 ...]` 附加一张或多张图片；
+        - `/image` 或 `/image list` 查看已附加图片；
+        - `/image clear` 清空已附加图片。
+        """
+        a = (arg or "").strip()
+        if not a or a.lower() == "list":
+            if self._pending_images:
+                console.print("已附加图片：")
+                for it in self._pending_images:
+                    console.print(f"  - {it['path']}")
+            else:
+                console.print("[yellow]尚未附加任何图片[/yellow]")
+            return
+        if a.lower() == "clear":
+            self._pending_images = []
+            console.print("[green]已清空附加图片[/green]")
+            return
+
+        ext_mime = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+        }
+        paths = [p for chunk in a.split() for p in chunk.split(",") if p]
+        added = 0
+        for p in paths:
+            resolved = Path(p).expanduser()
+            if not resolved.is_file():
+                console.print(f"[red]✗ 文件不存在: {p}[/red]")
+                continue
+            ext = resolved.suffix.lower()
+            if ext not in ext_mime:
+                console.print(f"[red]✗ 不支持的图片格式（仅 png/jpg/jpeg/gif/webp）: {p}[/red]")
+                continue
+            self._pending_images.append({"path": str(resolved.resolve()), "mime": ext_mime[ext]})
+            added += 1
+            console.print(f"[green]✓ 已附加: {resolved.name}[/green]")
+        if added:
+            console.print("[italic]发送下一条消息时将携带这些图片（/image clear 可清空）[/italic]")
+
     def _accumulate_usage(self, result) -> None:
         """累计一次 LLM 调用的 token 与费用（供 /cost 查看）。"""
         if result is None:
@@ -1277,9 +1337,14 @@ class CommandLineInteraction:
             self.skills_preload.clear()
 
             # 不落盘系统提示词：仅写入原始用户输入（含技能注入）
-            self._append_message({"role": "user", "content": user_input_with_skills})
+            msg = {"role": "user", "content": user_input_with_skills}
         else:
-            self._append_message({"role": "user", "content": user_input})
+            msg = {"role": "user", "content": user_input}
+        # 附加图片（由 /image 预置），随本条消息发送后清空
+        if getattr(self, "_pending_images", None):
+            msg["images"] = self._pending_images
+            self._pending_images = []
+        self._append_message(msg)
 
     def _refresh_active_plan(self, tool_name: str):
         """计划器执行后刷新活跃计划路径。"""
@@ -1294,6 +1359,15 @@ class CommandLineInteraction:
         # 记录官方余额基线（用于 /cost 计算会话官方花费）
         await self._ensure_cost_baseline()
 
+        # 本轮维护图片编码缓存（轮内复用、轮结束清理）
+        self._turn_image_cache = {}
+        try:
+            await self._stream_loop()
+        finally:
+            self._turn_image_cache = None
+
+    async def _stream_loop(self):
+        """单轮流式循环主体（含工具回路）。"""
         # 连续工具调用轮次计数（安全网，防死循环）
         tool_iterations = 0
 

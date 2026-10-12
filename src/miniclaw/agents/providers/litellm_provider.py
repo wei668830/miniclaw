@@ -195,6 +195,17 @@ def _merge_tool_call_delta(acc: dict, entry) -> None:
             slot["function"]["arguments"] += args
 
 
+def _messages_contain_image(messages) -> bool:
+    """判断消息列表里是否含图片内容块（``image_url`` / ``image``）。"""
+    for m in messages or []:
+        content = m.get("content") if isinstance(m, dict) else None
+        if isinstance(content, list):
+            for b in content:
+                if isinstance(b, dict) and b.get("type") in ("image_url", "image"):
+                    return True
+    return False
+
+
 class LiteLLMClient(BaseLLMClient):
     """基于 litellm 库的大模型客户端，实现非流式与流式对话。"""
 
@@ -217,6 +228,15 @@ class LiteLLMClient(BaseLLMClient):
         kwargs = LLMConfigurator.config_connection(**kwargs)
 
         kwargs["messages"] = messages
+
+        # litellm 的 deepseek provider 会丢弃图片内容：含图片时改走 OpenAI 兼容路径，
+        # 即把 "deepseek/<model>" 还原为 "<model>" 并显式指定 custom_llm_provider=openai。
+        if _messages_contain_image(messages):
+            _model = str(kwargs.get("model") or "")
+            if _model.startswith("deepseek/"):
+                kwargs["model"] = _model.split("/", 1)[1]
+                kwargs["custom_llm_provider"] = "openai"
+                logger.info("检测到图片输入，DeepSeek 改走 OpenAI 兼容路径: {}", kwargs["model"])
 
         if "usage_type" in kwargs:
             kwargs.pop("usage_type")

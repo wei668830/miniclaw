@@ -5,6 +5,7 @@ import { SkillPanel } from '../skill/SkillPanel';
 import { SettingsDialog } from '../settings/SettingsDialog';
 import { StatusBar } from '../common/StatusBar';
 import { WorkingDirButton } from '../common/WorkingDirButton';
+import { ImageLightbox } from '../common/ImageLightbox';
 import { TitleBar } from './TitleBar';
 
 export const AppShell: React.FC = () => {
@@ -39,6 +40,7 @@ export const AppShell: React.FC = () => {
       </div>
       <StatusBar />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <ImageLightbox />
     </div>
   );
 };

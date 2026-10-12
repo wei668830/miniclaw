@@ -12,7 +12,7 @@ from loguru import logger
 from .base_llm_client import ToolResponse, TextBlock
 from .constant import LLM_FUNCTION_SUBAGENT, LLM_FUNCTION_PLANNER
 from .tools import (read_file, write_file, edit_file, append_file,
-                    execute_shell_command, view_image, browser_use, desktop_screenshot, grep_search, glob_search,
+                    execute_shell_command, browser_use, desktop_screenshot, grep_search, glob_search,
                     launch_detached, get_current_time, set_user_timezone, tail_file, web_search)
 from ..constant import EnvVarLoader
 
@@ -150,28 +150,6 @@ BUILTIN_TOOLS = {
                         },
                     },
                     "required": ["file_path"]
-                },
-            }
-        }
-    },
-    "view_image": {
-        "invoke": view_image,
-        "definition": {
-            "type": "function",
-            "function": {
-                "name": "view_image",
-                "description": """Load an image file into the LLM context so the model can see it.
-                IMPORTANT: Simultaneous viewing of multiple images is not supported. If you need to view multiple images, please call them separately.
-                """,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "image_path": {
-                            "type": "string",
-                            "description": "Path to the image file to view."
-                        }
-                    },
-                    "required": ["file_path", "content"]
                 },
             }
         }

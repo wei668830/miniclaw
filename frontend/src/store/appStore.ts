@@ -5,6 +5,18 @@ import type { BalanceInfo, ChatStreamEvent, ConfigPayload, ContextInfo, SessionI
 // 历史会话列表每页条数：默认展示与「加载更多」每次均取该值
 const SESSION_PAGE_SIZE = 50;
 
+// 图片输入（来自剪贴板/拖拽/文件选择）
+export interface ComposerImage {
+  dataUrl: string;
+  mime: string;
+  name?: string;
+}
+
+function dataUrlToBase64(dataUrl: string): string {
+  const idx = dataUrl.indexOf(',');
+  return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
+}
+
 export interface UIToolCall {
   id?: string;
   name?: string;
@@ -18,6 +30,7 @@ export interface UIMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  images?: { dataUrl: string }[];
   reasoning?: string;
   toolCalls?: UIToolCall[];
   injectedSkills?: string[];
@@ -43,6 +56,7 @@ interface AppState {
   usage: UsageInfo | null;
   balance: BalanceInfo | null;
   abortController: AbortController | null;
+  lightboxSrc: string | null;
 
   init: () => Promise<void>;
   refreshSessions: (limit?: number) => Promise<void>;
@@ -56,12 +70,14 @@ interface AppState {
   activateSession: (id: string) => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
   loadSkills: (names: string[]) => Promise<{ pending: string[]; already_loaded: string[] }>;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, images?: ComposerImage[]) => Promise<void>;
   stopStream: () => void;
   setMode: (mode: 'agent' | 'chat') => Promise<void>;
   setWebSearch: (enabled: boolean) => Promise<void>;
   updateConfig: (patch: Partial<ConfigPayload> & { api_key?: string }) => Promise<void>;
   pushSystem: (text: string) => void;
+  openLightbox: (src: string) => void;
+  closeLightbox: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -79,6 +95,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   usage: null,
   balance: null,
   abortController: null,
+  lightboxSrc: null,
 
   init: async () => {
     try {
@@ -220,13 +237,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     return { pending: res.pending, already_loaded: res.already_loaded };
   },
 
-  sendMessage: async (text: string) => {
+  sendMessage: async (text: string, images?: ComposerImage[]) => {
     const trimmed = text.trim();
-    if (!trimmed || get().streaming) return;
+    const imgs = images ?? [];
+    if ((!trimmed && imgs.length === 0) || get().streaming) return;
     const { currentSessionId } = get();
     if (!currentSessionId) return;
 
-    const userMsg: UIMessage = { id: uid(), role: 'user', content: trimmed };
+    const userMsg: UIMessage = {
+      id: uid(),
+      role: 'user',
+      content: trimmed,
+      images: imgs.length ? imgs.map((i) => ({ dataUrl: i.dataUrl })) : undefined,
+    };
     const assistantId = uid();
     const assistantMsg: UIMessage = { id: assistantId, role: 'assistant', content: '', streaming: true, toolCalls: [] };
     set({ messages: [...get().messages, userMsg, assistantMsg], streaming: true, statusText: '生成中...' });
@@ -243,7 +266,14 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     try {
       await streamChat(
-        { session_id: currentSessionId, message: trimmed, mode: get().config?.runtime_mode },
+        {
+          session_id: currentSessionId,
+          message: trimmed,
+          images: imgs.length
+            ? imgs.map((i) => ({ data_base64: dataUrlToBase64(i.dataUrl), mime: i.mime, name: i.name }))
+            : undefined,
+          mode: get().config?.runtime_mode,
+        },
         {
           onEvent: (evt: ChatStreamEvent) => {
             const a = getAssistant();
@@ -345,6 +375,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   pushSystem: (text: string) => {
     set({ messages: [...get().messages, { id: uid(), role: 'system', content: text }] });
   },
+
+  openLightbox: (src: string) => set({ lightboxSrc: src }),
+  closeLightbox: () => set({ lightboxSrc: null }),
 }));
 
 // 去掉注入的用户消息中的「完整系统提示词」前缀与「技能注入块」，仅保留用户原始输入
@@ -387,7 +420,14 @@ function mapHistory(messages: any[]): UIMessage[] {
     if (role === 'user') {
       flush();
       const text = cleanUserText(typeof m.content === 'string' ? m.content : '');
-      if (text) out.push({ id: uid(), role: 'user', content: text });
+      const imgs = Array.isArray(m.images)
+        ? m.images
+            .map((x: any) => ({ dataUrl: x?.data_url || x?.dataUrl }))
+            .filter((x: any) => !!x.dataUrl)
+        : [];
+      if (text || imgs.length) {
+        out.push({ id: uid(), role: 'user', content: text, images: imgs.length ? imgs : undefined });
+      }
       continue;
     }
 

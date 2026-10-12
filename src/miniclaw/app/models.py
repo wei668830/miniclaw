@@ -34,11 +34,20 @@ class SessionInfo(BaseModel):
 # ---------------------------------------------------------------------------
 # 聊天
 # ---------------------------------------------------------------------------
+class ChatImageInput(BaseModel):
+    """聊天图片输入（base64）。"""
+
+    data_base64: str = Field(..., description="图片 base64（不含 data URL 前缀）")
+    mime: Optional[str] = Field(default=None, description="图片 MIME，如 image/png")
+    name: Optional[str] = Field(default=None, description="文件名（可选，用于推断 MIME）")
+
+
 class ChatStreamRequest(BaseModel):
     """聊天请求体（流式与非流式共用：会话 ID、用户消息与可选采样/模式覆盖）。"""
 
     session_id: str = Field(..., description="会话 ID")
     message: str = Field(..., description="用户输入（纯文本；技能由后端注入）")
+    images: list[ChatImageInput] = Field(default_factory=list, description="图片输入列表（可选）")
     model: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
@@ -124,6 +133,7 @@ __all__ = [
     "SessionInfo",
     "ChatStreamRequest",
     "ChatResponse",
+    "ChatImageInput",
     "SkillLoadRequest",
     "SkillItem",
     "ConfigUpdateRequest",

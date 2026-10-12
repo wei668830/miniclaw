@@ -44,6 +44,7 @@ from ..utils.context import (
     get_context_budget,
     shrink_messages,
 )
+from ..utils.multimodal import build_user_content, images_for_snapshot, save_image_base64
 
 SHORT_SYSTEM_PROMPT = (
     "你是一个应用解决方案专家，协助用户从设计方案到实现产品。"
@@ -63,6 +64,20 @@ UI_CHOICE_INSTRUCTION = (
     "```\n"
     "仅在确实需要用户确认/选择时使用该代码块，其余情况不要输出。"
 )
+
+# 支持图片输入的模型名关键字（启发式；用于非 vision 模型的明确提示）
+_VISION_MODEL_HINTS = (
+    "flash", "vision", "-vl", "vl-", "gpt-4o", "gpt-4.1", "gpt-5",
+    "claude-3", "claude-4", "gemini", "glm-4v", "internvl", "llava", "qwen-vl",
+)
+VISION_UNSUPPORTED_MSG = "当前模型不支持图片输入，请切换到支持视觉的模型（如 deepseek-flash）后重试。"
+
+
+def _model_supports_vision(model: Optional[str]) -> bool:
+    """启发式判断模型是否支持图片输入（用于非 vision 模型的明确提示）。"""
+    m = (model or "").lower()
+    return any(h in m for h in _VISION_MODEL_HINTS)
+
 
 # 工具结果回传给模型时的文本上限（字符），避免单条过长撑爆上下文
 _TOOL_RESULT_MAX_CHARS = 20000
@@ -128,6 +143,8 @@ class ChatSession:
 
         # —— 历史持久化 ——
         self.history_store = HistoryStore(self.session_id)
+        # 单轮图片编码缓存（键=path/mtime/size → data URL）：轮内复用、轮结束清理
+        self._turn_image_cache: Optional[dict] = None
 
         # —— 本会话累计用量（供 UI/接口查询）——
         self.usage = {
@@ -197,6 +214,10 @@ class ChatSession:
 
         系统提示词**不写入 jsonl 历史**：每次请求在此把完整系统提示词注入到
         **第一条用户消息**（确定性、仅副本），历史文件中只保留「干净」的用户输入。
+
+        图片：仅**当前轮**（最后一条 user 消息）携带——转成 OpenAI 兼容的 `image_url`
+        块（base64 data URL）；更早的 user 消息里的图片**剔除**（省 token），必要时用
+        文本占位保持消息非空。
         """
         messages = [dict(m) for m in self.messages]
         system_prompt = self._effective_system_prompt()
@@ -204,6 +225,18 @@ class ChatSession:
             if msg.get("role") == "user" and isinstance(msg.get("content"), str):
                 msg["content"] = merge_system_prompt_into_user(system_prompt, msg["content"])
                 break
+
+        last_user_idx = max(
+            (i for i, m in enumerate(messages) if m.get("role") == "user"), default=-1
+        )
+        for i, msg in enumerate(messages):
+            imgs = msg.pop("images", None)
+            if not imgs:
+                continue
+            if i == last_user_idx:
+                msg["content"] = build_user_content(msg.get("content") or "", imgs, cache=self._turn_image_cache)
+            elif not str(msg.get("content") or "").strip():
+                msg["content"] = "[图片]（历史图片，已省略）"
         return messages
 
     def _append_message(self, msg: dict) -> None:
@@ -261,10 +294,13 @@ class ChatSession:
             "skills_loaded": [{"name": n, "description": d} for (n, d, _p) in self.skills_loaded],
         }
 
-    def append_user_message(self, user_input: str) -> list[str]:
+    def append_user_message(self, user_input: str, images: Optional[list] = None) -> list[str]:
         """把用户消息写入上下文（**不含系统提示词**）；若有待注入技能，则把 SKILL.md 全文并入本消息。
 
         系统提示词不再落盘：由 :meth:`_build_request_messages` 在每次请求时重组注入。
+
+        :param user_input: 用户文本
+        :param images: 图片列表，元素形如 ``{"data_base64": str, "mime": str, "name": str}``
         """
         injected: list[str] = []
         text = user_input
@@ -273,8 +309,26 @@ class ChatSession:
             injected = [name for (name, _d, _p) in self.skills_preload]
             self.skills_loaded.extend(self.skills_preload)
             self.skills_preload = []
-        self._append_message({"role": "user", "content": text})
+        msg: dict = {"role": "user", "content": text}
+        saved = self._save_user_images(images)
+        if saved:
+            msg["images"] = saved
+        self._append_message(msg)
         return injected
+
+    def _save_user_images(self, images: Optional[list]) -> list:
+        """把请求携带的 base64 图片落盘，返回内部图片项 ``[{"path","mime"}]``。"""
+        saved: list = []
+        for im in images or []:
+            if not isinstance(im, dict):
+                continue
+            b64 = im.get("data_base64") or im.get("data")
+            if not b64:
+                continue
+            res = save_image_base64(self.session_id, b64, im.get("mime"), im.get("name"), cache=self._turn_image_cache)
+            if res:
+                saved.append({"path": res[0], "mime": res[1]})
+        return saved
 
     # ------------------------------------------------------------------
     # 上下文预算
@@ -365,17 +419,26 @@ class ChatSession:
     def snapshot(self) -> dict:
         """导出会话快照（ID、时间、模式、模型、消息、已加载技能与用量）。
 
-        :return: 会话快照字典
+        :return: 会话快照字典（用户消息里的图片以 ``data_url`` 形式提供，便于前端回放）
         """
         return {
             "session_id": self.session_id,
             "created_at": self.created_at,
             "runtime_mode": self.runtime_mode,
             "model": self.model,
-            "messages": self.messages,
+            "messages": [self._display_message(m) for m in self.messages],
             "skills_loaded": self.loaded_skills(),
             "usage": self.cost_info(),
         }
+
+    @staticmethod
+    def _display_message(msg: dict) -> dict:
+        """把内部消息转成给前端的展示形式：图片附带 ``data_url``（base64）。"""
+        out = dict(msg)
+        imgs = out.pop("images", None)
+        if imgs:
+            out["images"] = images_for_snapshot(imgs)
+        return out
 
     def summary(self) -> str:
         """提取首条用户消息正文作为会话摘要（裁剪至 60 字符）。
@@ -396,12 +459,27 @@ class ChatSession:
     # ------------------------------------------------------------------
     # 流式对话（产出事件）
     # ------------------------------------------------------------------
-    async def stream_events(self, user_input: str) -> AsyncIterator[dict]:
-        """执行一轮（含多轮工具回路）对话，逐事件产出。
+    async def stream_events(self, user_input: str, images: Optional[list] = None) -> AsyncIterator[dict]:
+        """执行一轮对话（逐事件产出），并为**本轮**维护图片编码缓存（轮结束清理）。
 
         事件类型：meta / reasoning / chunk / tool_call / tool_result / done / error。
+
+        :param images: 图片列表（base64），见 :meth:`append_user_message`
         """
-        injected = self.append_user_message(user_input)
+        self._turn_image_cache = {}
+        try:
+            async for event in self._stream_events_inner(user_input, images):
+                yield event
+        finally:
+            # 无论正常结束 / 异常 / 用户中断，都清理本轮图片缓存
+            self._turn_image_cache = None
+
+    async def _stream_events_inner(self, user_input: str, images: Optional[list] = None) -> AsyncIterator[dict]:
+        """单轮对话主体（不含图片缓存的建立/清理）。"""
+        if images and not _model_supports_vision(self.model):
+            yield {"event": "error", "data": {"error": VISION_UNSUPPORTED_MSG}}
+            return
+        injected = self.append_user_message(user_input, images)
         try:
             await self._ensure_balance_baseline()
         except Exception:
@@ -550,13 +628,13 @@ class ChatSession:
             yield {"event": "done", "data": {"finish_reason": "stop"}}
             return
 
-    async def chat_once(self, user_input: str) -> dict:
+    async def chat_once(self, user_input: str, images: Optional[list] = None) -> dict:
         """非流式对话：聚合事件，返回完整结果。"""
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         injected: list[str] = []
         usage: dict = {}
-        async for event in self.stream_events(user_input):
+        async for event in self.stream_events(user_input, images):
             name = event["event"]
             data = event["data"]
             if name == "chunk":

@@ -141,7 +141,7 @@ MiniClaw/
 | 前端界面/组件 | `frontend/src/`（组件在 `components/`，状态在 `store/appStore.ts`） |
 | 前端主进程/窗口/后端托管 | `frontend/electron/main.js` |
 
-**内置工具清单**（`llm_tools_manager.py`）：`read_file`、`write_file`、`edit_file`、`append_file`、`tail_file`、`grep_search`、`glob_search`、`execute_shell_command`、`view_image`、`desktop_screenshot`、`browser_use`、`launch_detached`、`web_search`、`get_current_time`、`set_user_timezone`，以及特殊工具 `make_plans`（规划器）与 `subtask_executor`（子代理）。
+**内置工具清单**（`llm_tools_manager.py`）：`read_file`、`write_file`、`edit_file`、`append_file`、`tail_file`、`grep_search`、`glob_search`、`execute_shell_command`、`desktop_screenshot`、`browser_use`、`launch_detached`、`web_search`、`get_current_time`、`set_user_timezone`，以及特殊工具 `make_plans`（规划器）与 `subtask_executor`（子代理）。
 
 **技能（Skill）机制**：技能以 `SKILL.md` 全文经**用户消息**注入（不改 system prompt），加载后本会话内不可卸载，仅「新建会话」可重置。默认目录 `~/.miniclaw/skills`；CLI 用 `/skill-list`、`/skill-load <name>,...`。
 
@@ -178,7 +178,7 @@ MiniClaw/
 
 - 测试：`pytest`（配置见 `pytest.ini`，测试位于 `tests/`）；异步测试用 `pytest-asyncio` 的 `@pytest.mark.asyncio`。
 - 调试：在待调试处插入 `import pdb; pdb.set_trace()`。
-- CLI 斜杠命令（定义于 `cli/commands.py::COMMAND_SPECS`）：`/help`、`/llm`、`/agent`、`/chat`、`/web-search`、`/model`、`/api_key`、`/base_url`、`/custom_llm_provider`、`/temperature`、`/max_token`、`/clear`、`/history`、`/memory`、`/memory-list`、`/context`、`/cost`、`/balance`、`/session-list`、`/session-load`、`/session-resume`、`/session-export`、`/skill-list`、`/skill-load`、`/quit`。
+- CLI 斜杠命令（定义于 `cli/commands.py::COMMAND_SPECS`）：`/help`、`/llm`、`/agent`、`/chat`、`/web-search`、`/model`、`/api_key`、`/base_url`、`/custom_llm_provider`、`/temperature`、`/max_token`、`/clear`、`/history`、`/memory`、`/memory-list`、`/context`、`/cost`、`/balance`、`/session-list`、`/session-load`、`/session-resume`、`/session-export`、`/skill-list`、`/skill-load`、`/image`、`/quit`。
 
 ---
 

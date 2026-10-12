@@ -38,16 +38,18 @@ async def chat_stream(req: ChatStreamRequest):
     :param req: 聊天请求体（含 session_id、message 及可选覆盖参数）
     :return: text/event-stream 流式响应
     """
-    if not req.message or not req.message.strip():
-        raise HTTPException(status_code=400, detail="message 不能为空")
+    if (not req.message or not req.message.strip()) and not req.images:
+        raise HTTPException(status_code=400, detail="message 与 images 不能同时为空")
 
     sm = get_session_manager()
     session = sm.get_or_load(req.session_id)
     _apply_overrides(session, req)
 
+    images = [im.model_dump() for im in req.images]
+
     async def event_generator() -> AsyncIterator[str]:
         """把会话流事件逐条编码为 SSE 文本帧产出。"""
-        async for event in session.stream_events(req.message):
+        async for event in session.stream_events(req.message, images):
             name = event["event"]
             data = event["data"]
             yield f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
@@ -70,15 +72,15 @@ async def chat(req: ChatStreamRequest):
     :param req: 聊天请求体（含 session_id、message 及可选覆盖参数）
     :return: 聚合后的聊天响应体
     """
-    if not req.message or not req.message.strip():
-        raise HTTPException(status_code=400, detail="message 不能为空")
+    if (not req.message or not req.message.strip()) and not req.images:
+        raise HTTPException(status_code=400, detail="message 与 images 不能同时为空")
 
     sm = get_session_manager()
     session = sm.get_or_load(req.session_id)
     _apply_overrides(session, req)
 
     try:
-        result = await session.chat_once(req.message)
+        result = await session.chat_once(req.message, [im.model_dump() for im in req.images])
     except RuntimeError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return ChatResponse(**result)

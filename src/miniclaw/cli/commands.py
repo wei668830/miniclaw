@@ -126,6 +126,13 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "_cmd_skill_load",
     ),
     CommandSpec(
+        "image", "附加图片文件（用于图片理解）",
+        "/image <图片路径> [更多路径...] 附加图片，随下一条消息发送\n"
+        "/image list 查看已附加图片\n"
+        "/image clear 清空已附加图片",
+        "_cmd_image",
+    ),
+    CommandSpec(
         "model", "查看/设置当前模型",
         "/model\n/model <model>", "_cmd_model",
     ),

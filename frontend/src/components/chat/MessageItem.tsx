@@ -17,16 +17,32 @@ export const MessageItem: React.FC<{ message: UIMessage; answeredValue?: string 
   const { role } = message;
   const sendMessage = useAppStore((s) => s.sendMessage);
   const streaming = useAppStore((s) => s.streaming);
+  const openLightbox = useAppStore((s) => s.openLightbox);
 
   if (role === 'system') {
     return <div className="msg system">{message.content}</div>;
   }
 
   if (role === 'user') {
+    const text = cleanUserText(message.content);
     return (
       <div className="msg-row user">
         <div className="bubble user">
-          <div className="content">{cleanUserText(message.content)}</div>
+          {message.images && message.images.length > 0 && (
+            <div className="msg-images">
+              {message.images.map((img, i) => (
+                <img
+                  key={i}
+                  className="msg-image"
+                  src={img.dataUrl}
+                  alt="用户图片"
+                  title="点击查看大图"
+                  onClick={() => openLightbox(img.dataUrl)}
+                />
+              ))}
+            </div>
+          )}
+          {text && <div className="content">{text}</div>}
           {message.injectedSkills && message.injectedSkills.length > 0 && (
             <div className="injected-skills">已注入技能：{message.injectedSkills.join('，')}</div>
           )}
