@@ -37,11 +37,19 @@ COMMAND_SPECS: tuple[CommandSpec, ...] = (
         "help", "显示帮助信息", "/help", "_cmd_help"
     ),
     CommandSpec(
-        "llm", "显示/切换/设置大模型配置",
+        "llm", "显示/刷新/切换/设置大模型配置",
         "/llm 显示大模型列表，* 号标记正在使用的大模型配置\n"
+        "/llm refresh 从 .env/环境变量重新加载配置，保留临时接入信息\n"
         "/llm use <name> 切换大模型配置\n"
         "/llm set <model>$$$<api_url>$$$<api_key>[$$$<custom_llm_provider>] 设置临时大模型配置",
         "_cmd_llm",
+    ),
+    CommandSpec(
+        "shell", "直接执行系统 Shell 命令（不调用大模型）",
+        "/shell <命令> 在当前目录执行，默认超时 60 秒\n"
+        "/shell dir Windows 查看目录列表\n"
+        "/shell ls Linux/macOS 查看目录列表",
+        "_cmd_shell",
     ),
     CommandSpec(
         "agent", "运行模式切换为代理模式",

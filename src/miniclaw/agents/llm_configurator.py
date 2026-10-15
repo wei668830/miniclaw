@@ -8,6 +8,8 @@ import os
 from collections import defaultdict
 from typing import Optional
 
+from dotenv import load_dotenv
+
 from ..constant import EnvVarLoader
 
 LLM_USAGE_MASTER = "Master"
@@ -35,6 +37,15 @@ class LLMConfigurator:
             API KEY
         """
         return os.getenv("LLM_API_KEY")
+
+    @classmethod
+    def refresh_llm_configs_by_group(cls):
+        """重新读取 .env（覆盖已有环境变量），返回最新的模型配置分组。
+
+        未在 .env 中指定的变量保留进程环境值，与启动时的环境配置兼容。
+        """
+        load_dotenv(override=True)
+        return cls.load_llm_configs_by_group()
 
     @classmethod
     def load_llm_configs_by_group(cls):

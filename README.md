@@ -11,20 +11,30 @@
 * 支持软件工程开发的各个环节，包括但不限于需求分析、设计、编码、测试(使用 playwright 进行B/S集成测试)、部署等。
 * 支持多个大模型配置，可以即时切换生效。
 * 支持联网搜索（豆包搜索）、屏幕截图、后台独立进程运行等工具。
+* 支持**图片理解（多模态视觉）**：UI 可**粘贴/拖拽/选择**图片，CLI 用 `/image <图片路径>` 附加图片文件（需支持视觉的模型，如 `deepseek-flash`）。
+
+## CLI 直接执行 Shell
+
+使用 `/shell <命令>` 在当前进程目录执行系统命令，不调用大模型，也不将输出写入对话上下文。
+
+* Windows：`/shell dir` 查看当前目录，`/shell dir *.md` 查看 Markdown 文档。
+* Linux/macOS：`/shell ls` 查看当前目录。
+* 输出包含标准输出、错误信息及失败时的退出码，默认超时 60 秒。
+* 每次启动独立 Shell，`cd` 不会改变后续命令的工作目录；请仅执行可信命令，删除或修改文件会直接生效。
 
 ## 工具列表
 * 文件读写：`read_file`、`write_file`、`edit_file`、`append_file`、`tail_file`
-* 文件查找：`find_files`（按文件名）、`search_file_contents`（按内容检索）
+* 文件查找：`grep_search`（按内容检索）、`glob_search`（按文件名匹配）
 * `SHELL` 命令：`execute_shell_command`
-* 浏览器操作：`control_browser`（基于 `playwright`，对设置防火防盗防 AI 的网站操作不了！）
-* 屏幕截图：`capture_screenshot`
+* 浏览器操作：`browser_use`（基于 `playwright`，对设置防火防盗防 AI 的网站操作不了！）
+* 屏幕截图：`desktop_screenshot`
 * 时间：`get_current_time` / `set_user_timezone`
 * 联网搜索：`web_search`（豆包搜索，默认关闭，可用 `/web-search on|off` 切换）
 * 独立进程运行：`launch_detached`（在后台启动一个完全独立的进程，脱离当前 Python 程序独立运行。适用于启动 Spring Boot、Node.js、执行 yarn/npm 构建等场景。路径支持 ~ 表示用户目录。）
 * 办事员（子任务执行器）：`subtask_executor`（处理各项子任务，子代理默认不允许再召唤子代理）
 * 任务规划者：`make_plans`（对复杂任务进行规划）
 
-> 工具的启用/禁用可通过 `LLM_ENABLED_TOOLS`（`*` 表示启用全部）与 `LLM_DISABLED_TOOLS`（逗号分隔）配置；默认示例禁用了 `find_files,search_file_contents`。
+> 工具的启用/禁用可通过 `LLM_ENABLED_TOOLS`（`*` 表示启用全部）与 `LLM_DISABLED_TOOLS`（逗号分隔）配置；默认示例禁用了 `glob_search,grep_search`。
 
 ## 默认技能列表
 * pdf-zh
@@ -144,6 +154,7 @@ python -m miniclaw ui       # 桌面应用（后端默认 7909 + Electron，--de
 | `/session-export` | 导出指定会话为 Markdown | `/session-export <session_id> [path]` |
 | `/skill-list` | 可用的技能列表 | `/skill-list`（扫描 `~/.miniclaw/skills`） |
 | `/skill-load` | 加载技能 | `/skill-load <skill-name>,...` |
+| `/image` | 附加图片文件（随下一条消息发送） | `/image <图片路径> [更多路径...]`；`/image clear`；`/image list` |
 | `/quit` | 退出 MiniClaw | `/quit` |
 
 
@@ -162,6 +173,21 @@ python -m miniclaw ui       # 桌面应用（后端默认 7909 + Electron，--de
 * 默认关闭，CLI 中用 `/web-search on|off` 动态开关。
 * API Key 推荐写入配置文件（默认 `<WORKING_DIR>/config/web_search.json`，即 `~/.miniclaw/config/web_search.json`，文件不存在时自动生成模板），也可用 `DOUBAO_SEARCH_API_KEY` / `DOUBAO_SEARCH_URL` / `DOUBAO_SEARCH_TIMEOUT` 等环境变量覆盖（详见 `.env.example`）。
 
+
+## 图片理解（Vision）
+
+支持在对话中使用图片（多模态）：
+
+* **UI（桌面应用）**：在输入框**粘贴**剪贴板图片、**拖拽**图片、或点「🖼 图片」**选择文件**（可多张）；随消息交给模型；缩略图/消息中的图片**点击可放大预览**（灯箱，Esc 或点空白关闭）。
+* **CLI**：`/image <图片路径> [更多路径...]` 附加图片（仅图片**文件**，格式 png/jpg/jpeg/gif/webp），随**下一条消息**发送；`/image clear` 清空、`/image list` 查看。
+
+要点：
+
+* 需要**支持视觉的模型**（如 `deepseek-flash`）；非视觉模型发图会收到明确提示。
+* **多轮策略**：仅**当前轮**的图片会发送给模型（历史轮图片不发送，但会话文件保留、界面仍可回看/放大）。
+* 图片落盘于 `~/.miniclaw/multimodal/uploads/<session_id>/`，历史只存**路径引用**（不内嵌 base64）；请求时转成 base64 `data:` URL，**单轮内只编码一次并缓存、轮结束即清理**。
+* 受 DeepSeek 限制：单图 ≤32 MiB、请求体 ≤48 MiB、单请求 ≤600 张。
+* 若经 **litellm** 接入 DeepSeek：含图请求会自动改走 **OpenAI 兼容路径**（`custom_llm_provider=openai`），因为 litellm 内置的 `deepseek/` provider 会丢弃图片内容。
 
 ## 会话推进机制（agent 模式）
 * 会话推进采用**提示词驱动自主执行（agent 模式）**，不再使用裁判续跑逻辑。

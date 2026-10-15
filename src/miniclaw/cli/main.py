@@ -31,6 +31,7 @@ from .session_state import (
 from .state import load_active_plan
 from ..agents import get_llm_client, llm_tools_manager
 from ..agents.constant import LLM_FUNCTION_PLANNER
+from ..agents.tools.shell import execute_shell_command
 from ..agents.llm_configurator import LLMConfigurator
 from ..constant import (
     MINICLAW_LOG,
@@ -761,6 +762,19 @@ class CommandLineInteraction:
         """处理 /help 命令。"""
         console.print(commands.build_help_table())
 
+    async def _cmd_shell(self, arg: str | None):
+        """直接执行 shell 命令，不调用模型或写入对话上下文。"""
+        if not arg or not arg.strip():
+            console.print("[red]❌ 用法: /shell <命令>，例如 /shell dir（Windows）或 /shell ls（Linux/macOS）[/red]")
+            return
+        try:
+            response = await execute_shell_command(arg, cwd=Path.cwd())
+            for block in response.content:
+                if block.type == "text":
+                    console.print(block.text, markup=False, highlight=False)
+        except Exception as e:
+            console.print(f"[red]❌ Shell 命令执行失败: {escape(str(e))}[/red]")
+
     def _cmd_llm(self, arg: str | None):
         """处理 /llm 命令。"""
         if arg is None:
@@ -780,7 +794,33 @@ class CommandLineInteraction:
         subcmd = parts[0]
         subarg = parts[1] if len(parts) > 1 else None
 
-        if subcmd == "use":
+        if subcmd == "refresh":
+            if len(parts) != 1:
+                console.print("[red]❌ 用法: /llm refresh[/red]")
+                return
+            try:
+                llms = LLMConfigurator.refresh_llm_configs_by_group()
+                # 临时接入信息不受刷新影响；命名配置被移除时回退到默认配置。
+                llm_name = self.llm_name
+                cfg = None
+                if llm_name != "temp":
+                    if llm_name not in llms:
+                        llm_name = "default"
+                    cfg = llms.get(llm_name)
+                    if not cfg or not cfg.get("model"):
+                        console.print("[red]❌ 刷新失败：当前及默认模型配置不可用，保留原接入信息[/red]")
+                        return
+                self.llms = llms
+                if cfg is not None:
+                    self.llm_name = llm_name
+                    self.model = cfg.get("model")
+                    self.base_url = cfg.get("base_url")
+                    self.api_key = cfg.get("api_key")
+                    self.custom_llm_provider = cfg.get("custom_llm_provider")
+                console.print("[green]✅ 大模型配置已从配置重新加载（临时接入信息保持不变）[/green]")
+            except Exception:
+                console.print("[red]❌ 大模型配置刷新失败，保留原接入信息，请检查配置[/red]")
+        elif subcmd == "use":
             if subarg is None:
                 console.print("[red]❌ 请指定模型名称[/red]")
                 return
