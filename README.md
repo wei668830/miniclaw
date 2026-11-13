@@ -58,11 +58,13 @@
 * `python 3.11+`
   * `Windows` 系统建议安装 `miniconda`
   * `Linux` 系统建议安装 `Conda`
-* 需要安装 `poetry` 包管理工具
-  * `pip install poetry`
-* 安装依赖
-  * `poetry install`
-  * `poetry install --group dev` (安装开发依赖)
+* 需要安装 `uv` 包管理工具（已由 Poetry 迁移至 uv）
+  * `pip install uv` 或参考 https://docs.astral.sh/uv/
+* 安装依赖（在项目根目录执行）
+  * `uv sync`（默认安装主依赖 + `dev` 依赖组；只用运行依赖时 `uv sync --no-dev`）
+  * 复用已有的 conda 环境而不新建 `.venv`：`set UV_PROJECT_ENVIRONMENT=<conda环境路径>` 后 `uv sync --inexact`（详见 `entrance.md`）
+* 运行
+  * `uv run python -m miniclaw`（等价 `uv run miniclaw`）
 * 运行依赖（额外的）
   * `pip install playwright`
   * `playwright install` (安装浏览器)
@@ -270,8 +272,8 @@ python -m miniclaw ui       # 桌面应用（后端默认 7909 + Electron，--de
 ## 测试说明
 
 ### 异步测试
-* 需要安装 `pytest-asyncio` 包
-  * `poetry add --group dev pytest-asyncio`
+* 需要安装 `pytest-asyncio` 包（已包含在 `dev` 依赖组中，`uv sync` 即装）
+  * `uv add --group dev pytest-asyncio`
 * 在测试文件中引入 `pytest-asyncio`，并使用 `@pytest.mark.asyncio` 装饰器标记异步测试函数
   ```python
   import pytest

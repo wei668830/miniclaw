@@ -24,9 +24,9 @@ MiniClaw 是一个**大模型（LLM）脚本手架工具**：以「大模型 + �
 | 项 | 要求 / 说明 |
 | --- | --- |
 | Python | `>=3.11,<4.0`（Windows 建议 miniconda，Linux 建议 conda） |
-| 包管理 | **Poetry**（`pip install poetry`） |
+| 包管理 | **uv**（独立安装：`winget install --id=astral-sh.uv` 或 `irm https://astral.sh/uv/install.ps1 \| iex`；也可 `pip install uv`；已替代 Poetry） |
 | Node.js | 前端构建/桌面应用需要（Electron + Vite） |
-| 依赖安装 | `poetry install`（含 dev 依赖；`poetry install --group dev`） |
+| 依赖安装 | `uv sync`（默认含 `dev` 依赖组；只装主依赖用 `uv sync --no-dev`） |
 | 额外运行依赖 | `pip install playwright` + `playwright install`；`pip install uvicorn`；`pip install litellm[proxy]`（可选代理） |
 | 配置文件 | 项目根目录 `.env`（由 `.env.example` 复制而来，`load_dotenv` 启动加载） |
 | 工作目录 | 默认 `~/.miniclaw`（`MINICLAW_WORKING_DIR` 可覆盖）：技能、记忆、状态、日志、工具落盘 |
@@ -42,12 +42,44 @@ MiniClaw 是一个**大模型（LLM）脚本手架工具**：以「大模型 + �
 **运行方式**
 
 ```bash
-# 统一入口（Windows 用 miniclaw.bat / Linux 用 miniclaw.sh，脚本内指定 python 解释器路径）
+# 统一入口（Windows 用 miniclaw.bat / Linux、macOS、WSL 用 miniclaw.sh）
+# 解释器解析顺序：MINICLAW_PYTHON 环境变量 > 工程内 .venv（uv 管理）> conda 环境 > PATH 上的 python
 python -m miniclaw            # 默认进入 CLI 交互模式
 python -m miniclaw cli        # CLI 交互模式
 python -m miniclaw server     # 仅启动 FastAPI 后端（默认 0.0.0.0:8000，可 --host/--port/--no-reload）
 python -m miniclaw ui         # 桌面应用：后端(默认 7909) + Electron（--dev 开发模式 / --no-build 跳过构建）
 ```
+
+**依赖管理（uv）与「双份依赖」说明**
+
+- 迁移结论：`pyproject.toml` 已改为 uv 友好结构（dev 依赖放 `[dependency-groups].dev`，国内镜像源放 `[[tool.uv.index]]`），锁文件由 `poetry.lock` 换成 `uv.lock`。
+- 常用命令：
+
+```bash
+uv sync                          # 按 uv.lock 同步依赖（含 dev 组），首次自动创建 .venv
+uv sync --no-dev                 # 只装运行依赖
+uv lock --upgrade                # 升级并重算锁文件
+uv add <pkg> / uv remove <pkg>   # 增删依赖（自动写回 pyproject.toml + uv.lock）
+uv run python -m miniclaw cli    # 用项目环境运行，无需手动激活
+uv build                         # 打包 wheel/sdist（构建后端 uv_build）
+```
+
+- 构建后端已从 `poetry-core` 换成 `uv_build`：`uv sync` 会把工程自身以 editable 方式装进环境（`miniclaw` 命令、`import miniclaw` 都依赖这一步），旧配置能跑但会额外下载 poetry-core；切换到 `uv_build` 后实测打出的 wheel 文件清单（含内置技能 `agents/skills/**` 等非 py 资源、`entry_points`）与 poetry-core 完全一致。
+
+- **不会重复下载**：uv 使用全局缓存（已迁移到 `D:\uv-cache`，配置见 `%APPDATA%\uv\uv.toml` 的 `cache-dir`），同一个 wheel 只下载一次，`.venv`、conda 环境、其它工程共用。
+- **磁盘占用**：`uv sync` 默认在工程根目录建 `.venv`，与 miniconda 的 `miniclaw311` 是两套独立环境（版本也可能不同，lock 取的是最新兼容版本）。`.venv` 逻辑大小约 216 MB，但缓存与工程同在 D 盘，安装走**硬链接**，包文件与缓存共享同一份数据，实际额外占用接近 0（可用 `fsutil hardlink list .venv\Lib\site-packages\rich\__init__.py` 验证存在两条路径）。
+- 迁移/更改缓存位置后，已有 `.venv` 里的文件仍是旧方式写入，需要 `uv sync --reinstall` 才会按新缓存重建为硬链接；环境变量 `UV_CACHE_DIR` 优先级高于配置文件（曾经用过的 C 盘旧缓存 `C:\Users\zhaowei\AppData\Local\uv\cache` 已删除，可回收约 911 MB）。
+- **想完全不产生第二份环境（直接复用 conda 环境）**：
+
+```bash
+set UV_PROJECT_ENVIRONMENT=C:\Users\zhaowei\miniconda3\envs\miniclaw311
+uv sync --inexact      # --inexact 必需，避免删除环境里 lock 之外的包
+```
+
+  - `uv sync` 会按 lock **精确对齐**该环境（升级/降级 pydantic、aiohttp 等传递依赖）；miniclaw 正在运行时 `site-packages` 里的 `.pyd` 被占用会报 `Access denied`，必须先停进程再同步。
+  - `uv sync --active` 只识别 `VIRTUAL_ENV`，conda 环境只能用 `UV_PROJECT_ENVIRONMENT`。
+  - 只补装缺失、不动其它包版本：`uv pip install -e . --no-deps`。
+- 启动脚本 `miniclaw.bat` / `miniclaw.sh` 已改为优先使用 `.venv`，不存在时回退 conda 环境解释器。
 
 ---
 
@@ -55,10 +87,10 @@ python -m miniclaw ui         # 桌面应用：后端(默认 7909) + Electron（
 
 ```text
 MiniClaw/
-├─ pyproject.toml            # Poetry 工程定义与依赖
-├─ poetry.lock               # 锁文件
+├─ pyproject.toml            # 工程定义与依赖（PEP621，uv 管理，构建后端 uv_build）
+├─ uv.lock                   # 锁文件（uv，替代原 poetry.lock）
 ├─ .env.example              # 环境变量模板（复制为 .env 使用）
-├─ miniclaw.bat / .sh        # 启动脚本（指定 python 解释器）
+├─ miniclaw.bat / .sh        # 启动脚本（MINICLAW_PYTHON > .venv > conda > PATH python）
 ├─ README.md                 # 使用说明（特性/工具/技能/环境与记忆机制）
 ├─ entrance.md               # 本入口文件
 ├─ src/miniclaw/             # Python 主工程（核心）
